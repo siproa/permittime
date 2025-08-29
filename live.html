@@ -112,12 +112,21 @@
       'build ' + new Date().toLocaleString();
 
   // ---------- city config (Austin) ----------
-  const C = {
-    name:'Austin, TX',
-    portal:'https://data.austintexas.gov/resource/',
-    dataset:'3syk-w9eu.json',
-    f:{ issued:'issue_date', applied:'applieddate', type:'permit_type_desc', address:'permit_location' }
-  };
+const c = {
+  name: 'Austin, TX',
+  portal: 'https://data.austintexas.gov',
+  dataset: '3syk-w9eu.json',
+  f: {
+    // the dataset's column names
+    issued: 'issue_date',            // <-- was wrong or pointing at completed_date
+    applied: null,                   // Austin doesn’t publish application date
+    type: 'permit_type_desc',
+    address: 'permit_location',
+    contractor: 'contractor',
+    value: 'value',
+    desc: 'work_description'         // fallback to 'description' if you prefer
+  }
+};
 
   // ---------- tiny SOQL fetch via our proxy ----------
   async function soql(params){
@@ -146,22 +155,48 @@
     if (ds) ds.href = C.portal.replace(/\/?$/,'/') + C.dataset.replace('.json','');
 
     // 1) KPIs
-    try {
-      const k7 = await soql({
-        "$select":"count(1) as c",
-        "$where": `${C.f.issued} >= '${start7}T00:00:00'`,
-        "$limit": 1
-      });
-      const ktoday = await soql({
-        "$select":"count(1) as c",
-        "$where": `${C.f.issued} >= '${today}T00:00:00' AND ${C.f.issued} < '${tomorrow}T00:00:00'`,
-        "$limit": 1
-      });
-      document.getElementById('issued7')?.querySelector('h2').textContent = k7[0]?.c ?? '0';
-      document.getElementById('today')?.querySelector('h2').textContent   = ktoday[0]?.c ?? '0';
-    } catch(e) {
-      console.error('KPI error:', e);
-    }
+  // Helpers to build "YYYY-MM-DDT00:00:00" in UTC so it's stable
+const isoDateOnly = d => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  .toISOString().slice(0,19); // "YYYY-MM-DDTHH:MM:SS"
+
+const today = new Date();
+const startToday = isoDateOnly(today);
+const tomorrow = new Date(today); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+const startTomorrow = isoDateOnly(tomorrow);
+
+const sevenDaysAgo = new Date(today); sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7);
+const start7 = isoDateOnly(sevenDaysAgo);
+
+const thirtyDaysAgo = new Date(today); thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 30);
+const start30 = isoDateOnly(thirtyDaysAgo);
+
+// 7-day issued count
+const last7 = await soql({
+  $select: 'count(1) as c',
+  $where: `${c.f.issued} >= '${start7}' AND ${c.f.issued} < '${startTomorrow}'`,
+  $limit: 1
+});
+document.getElementById('issued7').textContent = last7?.[0]?.c ?? '0';
+
+// today issued count
+const todayQ = await soql({
+  $select: 'count(1) as c',
+  $where: `${c.f.issued} >= '${startToday}' AND ${c.f.issued} < '${startTomorrow}'`,
+  $limit: 1
+});
+document.getElementById('today').textContent = todayQ?.[0]?.c ?? '0';
+
+// by type in last 30 days (no median if applied is missing)
+const byTypeRows = await soql({
+  $select: `${c.f.type} as t, count(1) as n`,
+  $where: `${c.f.issued} >= '${start30}' AND ${c.f.issued} < '${startTomorrow}'`,
+  $group: c.f.type,
+  $order: 'n DESC',
+  $limit: 200
+});
+document.getElementById('types').innerHTML = byTypeRows.length
+  ? byTypeRows.map(r => `<tr><td>${r.t || 'Other'}</td><td>—</td><td>${r.n}</td></tr>`).join('')
+  : `<tr><td colspan="3">No permit rows in the last 30 days.</td></tr>`;
 
     // 2) Pull last 30 days rows once
     let rows30 = [];
