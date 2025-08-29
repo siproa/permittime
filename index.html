@@ -24,6 +24,7 @@
     footer { color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding: 16px 20px; }
     .pill { display:inline-block; background:#f6f6f6; border:1px solid var(--line); padding:2px 8px; border-radius:999px; font-size:12px; margin-right:6px }
     .hint { color: var(--muted); font-size: 12px; }
+    .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
   </style>
 </head>
 <body>
@@ -38,6 +39,7 @@
       <div class="card">
         <h2 id="median">—</h2>
         <div class="label">Median days to issue (last 30 days)</div>
+        <div id="median-note" class="note"></div>
       </div>
       <div class="card">
         <h2 id="issued7">—</h2>
@@ -51,13 +53,13 @@
 
     <h3>By permit type (last 30 days)</h3>
     <table>
-      <thead><tr><th>Type</th><th>Median days</th><th>Count</th></tr></thead>
+      <thead><tr><th>Type</th><th id="type-metric-h">Median days</th><th>Count</th></tr></thead>
       <tbody id="types"></tbody>
     </table>
 
     <h3>Methodology</h3>
     <p>
-      We compute the difference between <span class="pill">application date</span> and <span class="pill">issue date</span> for permits issued in the last 30 days. Rows with missing or invalid dates are ignored.
+      We compute the difference between <span class="pill">application date</span> and <span class="pill">issue date</span> for permits issued in the last 30 days. Rows with missing or invalid dates are ignored. If a city’s dataset lacks application dates, we show counts and per-type activity but omit the median.
     </p>
   </main>
 
@@ -66,14 +68,13 @@
   </footer>
 
   <script>
-    // City configs. If fields are missing or wrong, we auto-detect them.
+    // Configure cities. Field names are best guesses; we auto-detect real keys.
     const CITIES = {
       dallas: {
         name: "Dallas, TX",
         portal: "https://www.dallasopendata.com/resource/",
         dataset: "e7gq-4sah.json",
-        // Guesses; auto-detect will correct these if needed.
-        fields: { applied: "application_date", issued: "issue_date", type: "permit_type" }
+        fields: { applied: "application_date", issued: "issued_date", type: "permit_type" }
       }
     };
 
@@ -96,7 +97,8 @@
         portal, dataset,
         select: params["$select"],
         where:  params["$where"],
-        limit:  params["$limit"] || 50000
+        limit:  params["$limit"] || 50000,
+        order:  params["$order"] || ""
       });
       const r = await fetch(`/api/soql?${q.toString()}`);
       if(!r.ok){
@@ -106,31 +108,27 @@
       return r.json();
     }
 
-    // Try to infer field names from a sample row if our guesses are wrong.
+    // Auto-detect field names from a sample row (cities love renaming columns)
     async function detectFields(cfg){
       const sample = await soql(cfg.portal, cfg.dataset, { "$limit": 1 });
       const keys = Object.keys(sample[0] || {});
       const find = list => list.find(k => keys.includes(k));
-
-      const applied =
-        cfg.fields?.applied ||
-        find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt"]);
-
-      const issued =
-        cfg.fields?.issued ||
-        find(["issue_date","issued_date","date_issued","issueddate","issue_dt"]);
-
-      const type =
-        cfg.fields?.type ||
-        find(["permit_type","work_type","permitclass","permit_class","permit_description","work_description","permit_description"]);
-
-      return { applied, issued, type };
+      const applied = find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt"]);
+      const issued  = find(["issued_date","issue_date","date_issued","issueddate","issue_dt"]);
+      const type    = find(["permit_type","work_type","permitclass","permit_class","permit_description","work_description"]);
+      // Prefer configured values when they exist
+      return {
+        applied: cfg.fields.applied && keys.includes(cfg.fields.applied) ? cfg.fields.applied : applied,
+        issued:  cfg.fields.issued  && keys.includes(cfg.fields.issued)  ? cfg.fields.issued  : issued,
+        type:    cfg.fields.type    && keys.includes(cfg.fields.type)    ? cfg.fields.type    : type
+      };
     }
 
     function parseDate(v){
       if(!v) return NaN;
       const d = new Date(v);
       if(!isNaN(d)) return d;
+      // handle MM/DD/YY
       const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(v);
       if(m){
         let y = parseInt(m[3],10); if(y < 100) y += 2000;
@@ -139,65 +137,79 @@
       return new Date(NaN);
     }
 
+    function median(nums){
+      if(!nums.length) return null;
+      nums.sort((a,b)=>a-b);
+      return nums[Math.floor(nums.length/2)];
+    }
+
     async function load(){
       const slug = getCitySlug();
       const cfg = CITIES[slug];
       document.title = `PermitTime – ${cfg.name}`;
 
-      // Resolve real field names
       const f = await detectFields(cfg);
-      if(!f.applied || !f.issued){
-        document.getElementById('types').innerHTML = `<tr><td colspan="3">Dataset missing required date fields.</td></tr>`;
-        return;
+      const hasApplied = !!f.applied;
+      const medianNote = document.getElementById("median-note");
+
+      // Pull a big batch and do date math locally (datasets often store dates as text)
+      const fieldsWanted = [f.issued, f.type, f.applied].filter(Boolean).join(", ");
+      const rows = await soql(cfg.portal, cfg.dataset, { "$select": fieldsWanted, "$limit": 50000 });
+
+      // Prep rows: parse issued/app dates
+      const now = new Date();
+      const dayMs = 86400000;
+      const last30 = [];
+      for(const r of rows){
+        const di = parseDate(r[f.issued]);
+        if(!isFinite(di)) continue;
+        const daysAgo = (now - di)/dayMs;
+        if(daysAgo >= 0 && daysAgo <= 30) {
+          const da = hasApplied ? parseDate(r[f.applied]) : NaN;
+          last30.push({ issued: di, applied: da, type: (f.type && r[f.type]) || "Other" });
+        }
       }
 
-      // KPI 1: Median days to issue (last 30 days)
-      const rows = await soql(cfg.portal, cfg.dataset, {
-        "$select": `${f.applied}, ${f.issued}`,
-        "$where": `${f.issued} >= dateadd('day',-30, now()) AND ${f.applied} IS NOT NULL AND ${f.issued} IS NOT NULL`,
-        "$limit": 50000
-      });
-      const diffs = rows
-        .map(r => (parseDate(r[f.issued]) - parseDate(r[f.applied]))/86400000)
-        .filter(x => isFinite(x) && x >= 0)
-        .sort((a,b)=>a-b);
-      document.getElementById('median').textContent = diffs.length ? diffs[Math.floor(diffs.length/2)].toFixed(1) : '—';
+      // KPIs: counts
+      const todayISO = now.toISOString().slice(0,10);
+      const issued7 = last30.filter(x => (now - x.issued)/dayMs <= 7).length;
+      const today = last30.filter(x => x.issued.toISOString().slice(0,10) === todayISO).length;
+      document.getElementById("issued7").textContent = String(issued7);
+      document.getElementById("today").textContent = String(today);
 
-      // KPI 2/3: counts
-      const todayISO = new Date().toISOString().slice(0,10);
-      const last7 = await soql(cfg.portal, cfg.dataset, {
-        "$select": "count(1) as c",
-        "$where": `${f.issued} >= dateadd('day',-7, now())`
-      });
-      const today = await soql(cfg.portal, cfg.dataset, {
-        "$select": "count(1) as c",
-        "$where": `${f.issued} >= '${todayISO}T00:00:00' AND ${f.issued} < dateadd('day',1,'${todayISO}T00:00:00')`
-      });
-      document.getElementById('issued7').textContent = last7[0]?.c || '0';
-      document.getElementById('today').textContent = today[0]?.c || '0';
-
-      // Table: by permit type median
-      const rows2 = await soql(cfg.portal, cfg.dataset, {
-        "$select": `${f.type || "permit_type"}, ${f.applied}, ${f.issued}`,
-        "$where": `${f.issued} >= dateadd('day',-30, now()) AND ${f.applied} IS NOT NULL AND ${f.issued} IS NOT NULL`,
-        "$limit": 50000
-      });
-      const groups = {};
-      for(const r of rows2){
-        const t = (f.type ? r[f.type] : r["permit_type"]) || 'Other';
-        const d = (parseDate(r[f.issued]) - parseDate(r[f.applied]))/86400000;
-        if(!(d >= 0) || !isFinite(d)) continue;
-        (groups[t] ||= []).push(d);
+      // KPI: median days to issue (only if we have application dates)
+      if(hasApplied){
+        const diffs = last30
+          .map(x => (x.issued - x.applied)/dayMs)
+          .filter(x => isFinite(x) && x >= 0);
+        const m = median(diffs);
+        document.getElementById("median").textContent = m != null ? m.toFixed(1) : "—";
+        medianNote.textContent = "";
+        document.getElementById("type-metric-h").textContent = "Median days";
+      } else {
+        document.getElementById("median").textContent = "N/A";
+        medianNote.textContent = "This city’s dataset doesn’t include application dates, so we show activity only.";
+        document.getElementById("type-metric-h").textContent = "—";
       }
-      const out = Object.entries(groups).map(([t,arr]) => {
-        arr.sort((a,b)=>a-b);
-        const med = arr[Math.floor(arr.length/2)] || 0;
-        return { t, med: med.toFixed(1), n: arr.length };
-      }).sort((a,b)=>b.n-a.n).slice(0, 16);
 
-      document.getElementById('types').innerHTML = out.length
-        ? out.map(r => `<tr><td>${r.t}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join('')
-        : `<tr><td colspan="3">No data in the last 30 days.</td></tr>`;
+      // Table: by permit type
+      const byType = {};
+      for(const x of last30){
+        (byType[x.type] ||= []).push(x);
+      }
+      const rowsOut = Object.entries(byType).map(([t,arr])=>{
+        let med = "—";
+        if(hasApplied){
+          const diffs = arr.map(x => (x.issued - x.applied)/dayMs).filter(x => isFinite(x) && x >= 0);
+          const m = median(diffs);
+          med = m != null ? m.toFixed(1) : "—";
+        }
+        return { t, med, n: arr.length };
+      }).sort((a,b)=>b.n-a.n).slice(0,16);
+
+      document.getElementById("types").innerHTML = rowsOut.length
+        ? rowsOut.map(r=>`<tr><td>${r.t}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join("")
+        : `<tr><td colspan="3">No permit rows in the last 30 days.</td></tr>`;
     }
 
     buildCityPicker();
