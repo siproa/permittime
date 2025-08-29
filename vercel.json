@@ -2,6 +2,6 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
-    { "source": "/(.*)", "destination": "/index3.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
