@@ -238,13 +238,14 @@
 
       // --- contractors (last 30 days) ---
       try{
-        const ctr = await soql({
-          $select: `${c.contractor} as contractor, count(1) as n, sum(${c.value}::number) as s, avg(${c.value}::number) as a`,
-          $where: `${c.issued} >= '${start30}' AND ${c.contractor} IS NOT NULL`,
-          $group: 'contractor',
-          $order: 's DESC',
-          $limit: 1000
-        });
+       const ctr = await soql({
+  $select: `${c.contractor} as contractor, count(1) as n, sum(to_number(${c.value})) as s, avg(to_number(${c.value})) as a`,
+  $where: `${c.issued} >= '${start30}' AND ${c.contractor} IS NOT NULL AND ${c.contractor} <> ''`,
+  $group: 'contractor',
+  $order: 's DESC',
+  $limit: 1000
+});
+
         const tb = document.getElementById('contractors');
         tb.innerHTML = ctr.length
           ? ctr.map(r => `
@@ -264,11 +265,12 @@
       let shown = [];
       try{
         const recent = await soql({
-          $select: `${c.issued} as issued, ${c.type} as type, ${c.address} as address, ${c.value} as value, ${c.contractor} as contractor, ${c.desc1}, ${c.desc2}`,
-          $where: `${c.issued} >= '${start7}'`,
-          $order: `${c.issued} DESC`,
-          $limit: 5000
-        });
+  $select: `${c.issued} as issued, ${c.type} as type, ${c.address} as address, ${c.value} as value, ${c.contractor} as contractor, ${c.desc1} as work_description, ${c.desc2} as description`,
+  $where: `${c.issued} >= '${start7}'`,
+  $order: `${c.issued} DESC`,
+  $limit: 3000
+});
+
         shown = (recent || []).map(r => ({
           issued: r.issued,
           type: r.type || 'Other',
