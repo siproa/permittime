@@ -68,13 +68,13 @@
   </footer>
 
   <script>
-    // Configure cities. Field names are best guesses; we auto-detect real keys.
+    // City configs. We’ll auto-detect actual field names from a sample row.
     const CITIES = {
       dallas: {
         name: "Dallas, TX",
         portal: "https://www.dallasopendata.com/resource/",
         dataset: "e7gq-4sah.json",
-        fields: { applied: "application_date", issued: "issued_date", type: "permit_type" }
+        fields: { applied: null, issued: "issued_date", type: "permit_type" } // Dallas has issued_date; app date often missing
       }
     };
 
@@ -93,42 +93,39 @@
 
     // Proxy via Vercel serverless (api/soql.js)
     async function soql(portal, dataset, params){
-      const q = new URLSearchParams({
-        portal, dataset,
-        select: params["$select"],
-        where:  params["$where"],
-        limit:  params["$limit"] || 50000,
-        order:  params["$order"] || ""
-      });
+      const clean = {};
+      if (params["$select"]) clean.select = params["$select"];
+      if (params["$where"])  clean.where  = params["$where"];
+      if (params["$order"])  clean.order  = params["$order"];
+      clean.limit = params["$limit"] || 20000; // cap for sanity
+      const q = new URLSearchParams({ portal, dataset, ...clean });
       const r = await fetch(`/api/soql?${q.toString()}`);
-      if(!r.ok){
-        const t = await r.text();
-        throw new Error(t || `Fetch failed (${r.status})`);
+      const text = await r.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch { /* fall through */ }
+      if(!r.ok || !Array.isArray(json)) {
+        throw new Error(json?.message || `Fetch failed (${r.status})`);
       }
-      return r.json();
+      return json;
     }
 
-    // Auto-detect field names from a sample row (cities love renaming columns)
+    // Auto-detect field names from a sample row (cities rename for sport)
     async function detectFields(cfg){
       const sample = await soql(cfg.portal, cfg.dataset, { "$limit": 1 });
       const keys = Object.keys(sample[0] || {});
       const find = list => list.find(k => keys.includes(k));
-      const applied = find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt"]);
-      const issued  = find(["issued_date","issue_date","date_issued","issueddate","issue_dt"]);
-      const type    = find(["permit_type","work_type","permitclass","permit_class","permit_description","work_description"]);
-      // Prefer configured values when they exist
-      return {
-        applied: cfg.fields.applied && keys.includes(cfg.fields.applied) ? cfg.fields.applied : applied,
-        issued:  cfg.fields.issued  && keys.includes(cfg.fields.issued)  ? cfg.fields.issued  : issued,
-        type:    cfg.fields.type    && keys.includes(cfg.fields.type)    ? cfg.fields.type    : type
-      };
+      const applied = cfg.fields.applied || find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt"]);
+      const issued  = cfg.fields.issued  && keys.includes(cfg.fields.issued) ? cfg.fields.issued
+                      : find(["issued_date","issue_date","date_issued","issueddate","issue_dt"]);
+      const type    = cfg.fields.type    && keys.includes(cfg.fields.type)   ? cfg.fields.type
+                      : find(["permit_type","work_type","permitclass","permit_class","permit_description","work_description"]);
+      return { applied, issued, type };
     }
 
     function parseDate(v){
       if(!v) return NaN;
       const d = new Date(v);
       if(!isNaN(d)) return d;
-      // handle MM/DD/YY
       const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(v);
       if(m){
         let y = parseInt(m[3],10); if(y < 100) y += 2000;
@@ -147,62 +144,61 @@
       const slug = getCitySlug();
       const cfg = CITIES[slug];
       document.title = `PermitTime – ${cfg.name}`;
-
-      const f = await detectFields(cfg);
-      const hasApplied = !!f.applied;
       const medianNote = document.getElementById("median-note");
 
-      // Pull a big batch and do date math locally (datasets often store dates as text)
-      const fieldsWanted = [f.issued, f.type, f.applied].filter(Boolean).join(", ");
-      const rows = await soql(cfg.portal, cfg.dataset, { "$select": fieldsWanted, "$limit": 50000 });
+      // Resolve fields
+      const f = await detectFields(cfg);
+      if(!f.issued){
+        throw new Error("Dataset missing issued date field");
+      }
 
-      // Prep rows: parse issued/app dates
-      const now = new Date();
-      const dayMs = 86400000;
+      // Pull a large recent slice, ordered by issued date (string sort is fine for MM/DD/YY)
+      const fieldsWanted = [f.issued, f.type, f.applied].filter(Boolean).join(", ");
+      const rows = await soql(cfg.portal, cfg.dataset, {
+        "$select": fieldsWanted,
+        "$order":  `${f.issued} DESC`,
+        "$limit":  20000
+      });
+
+      // Normalize and keep only last 30 days by issued date
+      const now = new Date(), dayMs = 86400000, todayISO = now.toISOString().slice(0,10);
       const last30 = [];
       for(const r of rows){
         const di = parseDate(r[f.issued]);
         if(!isFinite(di)) continue;
-        const daysAgo = (now - di)/dayMs;
-        if(daysAgo >= 0 && daysAgo <= 30) {
-          const da = hasApplied ? parseDate(r[f.applied]) : NaN;
+        if((now - di)/dayMs <= 30 && (now - di) >= 0){
+          const da = f.applied ? parseDate(r[f.applied]) : NaN;
           last30.push({ issued: di, applied: da, type: (f.type && r[f.type]) || "Other" });
         }
       }
 
-      // KPIs: counts
-      const todayISO = now.toISOString().slice(0,10);
+      // Counts
       const issued7 = last30.filter(x => (now - x.issued)/dayMs <= 7).length;
       const today = last30.filter(x => x.issued.toISOString().slice(0,10) === todayISO).length;
       document.getElementById("issued7").textContent = String(issued7);
       document.getElementById("today").textContent = String(today);
 
-      // KPI: median days to issue (only if we have application dates)
-      if(hasApplied){
-        const diffs = last30
-          .map(x => (x.issued - x.applied)/dayMs)
-          .filter(x => isFinite(x) && x >= 0);
+      // Median
+      if(f.applied){
+        const diffs = last30.map(x => (x.issued - x.applied)/dayMs).filter(x => isFinite(x) && x >= 0);
         const m = median(diffs);
         document.getElementById("median").textContent = m != null ? m.toFixed(1) : "—";
-        medianNote.textContent = "";
         document.getElementById("type-metric-h").textContent = "Median days";
+        medianNote.textContent = "";
       } else {
         document.getElementById("median").textContent = "N/A";
-        medianNote.textContent = "This city’s dataset doesn’t include application dates, so we show activity only.";
         document.getElementById("type-metric-h").textContent = "—";
+        medianNote.textContent = "This dataset lacks application dates; showing activity only.";
       }
 
-      // Table: by permit type
+      // Table by type
       const byType = {};
-      for(const x of last30){
-        (byType[x.type] ||= []).push(x);
-      }
+      for(const x of last30){ (byType[x.type] ||= []).push(x); }
       const rowsOut = Object.entries(byType).map(([t,arr])=>{
         let med = "—";
-        if(hasApplied){
+        if(f.applied){
           const diffs = arr.map(x => (x.issued - x.applied)/dayMs).filter(x => isFinite(x) && x >= 0);
-          const m = median(diffs);
-          med = m != null ? m.toFixed(1) : "—";
+          const m = median(diffs); med = m != null ? m.toFixed(1) : "—";
         }
         return { t, med, n: arr.length };
       }).sort((a,b)=>b.n-a.n).slice(0,16);
