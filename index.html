@@ -36,9 +36,7 @@
 <body>
   <header>
     <h1>PermitTime</h1>
-    <select id="city" class="city-select">
-      <option value="austin">Austin, TX</option>
-    </select>
+    <select id="city" class="city-select"><option value="austin">Austin, TX</option></select>
     <span class="muted">Auto-updated daily from official open data. Not for permitting advice.</span>
   </header>
 
@@ -89,9 +87,7 @@
     </div>
     <div style="max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:12px;">
       <table>
-        <thead>
-          <tr><th class="nowrap">Issued</th><th>Type</th><th>Address</th><th class="nowrap">Value</th><th>Contractor</th><th>Description</th></tr>
-        </thead>
+        <thead><tr><th class="nowrap">Issued</th><th>Type</th><th>Address</th><th class="nowrap">Value</th><th>Contractor</th><th>Description</th></tr></thead>
         <tbody id="recent"></tbody>
       </table>
     </div>
@@ -108,9 +104,13 @@
   </footer>
 
   <script>
-    function fatal(msg){ console.error(msg); const b=document.getElementById('errbox'); b.textContent='Error: '+msg; b.style.display='block'; }
-    window.addEventListener('error', e => fatal(e.message));
-
+  // Crash-proof boot
+  (function(){
+    const dayMs = 86400000;
+    const fmtDate = d => d instanceof Date ? d.toISOString().slice(0,10) : "";
+    const money = n => { const x = Number(String(n).replace(/[^0-9.-]/g,"")); return isFinite(x) ? x.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0}) : ""; };
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;'}[c]));
+    const median = a => { if(!a.length) return null; const b=[...a].sort((x,y)=>x-y); return b[Math.floor(b.length/2)]; };
     const CITIES = {
       austin: {
         name: "Austin, TX",
@@ -120,17 +120,14 @@
       }
     };
 
-    const fmtDate = d => d instanceof Date ? d.toISOString().slice(0,10) : "";
-    const money = n => { const x = Number(String(n).replace(/[^0-9.-]/g,"")); return isFinite(x) ? x.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0}) : ""; };
-    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;'}[c]));
-    const median = a => { if(!a.length) return null; const b=[...a].sort((x,y)=>x-y); return b[Math.floor(b.length/2)]; };
+    function fatal(msg) {
+      console.error(msg);
+      const b = document.getElementById('errbox');
+      if (b) { b.textContent = 'Error: ' + msg; b.style.display = 'block'; }
+    }
+    window.addEventListener('error', e => fatal(e.message || 'Script error'));
 
     function getCitySlug(){ return "austin"; }
-    function buildCityPicker(){
-      const sel = document.getElementById('city');
-      sel.innerHTML = `<option value="austin">Austin, TX</option>`;
-      sel.value = "austin";
-    }
 
     async function soql(portal, dataset, params){
       const clean = {};
@@ -147,162 +144,161 @@
       return json;
     }
 
-    async function load(){
-      const slug = getCitySlug();
-      const cfg = CITIES[slug];
-      const f = cfg.fields;
+    window.addEventListener('DOMContentLoaded', () => {
+      try {
+        // Safe UI setup
+        document.getElementById('city')?.querySelector('[value="austin"]')?.setAttribute('selected','selected');
+        const lastUp = document.getElementById('last-updated');
+        if (lastUp) lastUp.textContent = new Date().toLocaleString();
 
-      document.title = `PermitTime – ${cfg.name}`;
-      document.getElementById('last-updated').textContent = new Date().toLocaleString();
+        const slug = getCitySlug();
+        const cfg = CITIES[slug];
+        document.title = `PermitTime – ${cfg.name}`;
 
-      const datasetId = cfg.dataset.replace(".json","");
-      document.getElementById("dataset-link").href = cfg.portal.replace("/resource/","/d/") + datasetId;
-      document.getElementById("fallback-badge").style.display = "none";
-      document.getElementById("window-label-1").textContent = "30";
-      document.getElementById("window-label-2").textContent = "30";
-      document.getElementById("window-label-3").textContent = "30";
+        const datasetId = cfg.dataset.replace(".json","");
+        const dsLink = document.getElementById("dataset-link");
+        if (dsLink) dsLink.href = cfg.portal.replace("/resource/","/d/") + datasetId;
 
-      const todayISO = new Date().toISOString().slice(0,10);
-      const where30 = `${f.issued} >= dateadd('day',-30, now())`;
-      const where90 = `${f.issued} >= dateadd('day',-90, now())`;
-      const where7  = `${f.issued} >= dateadd('day',-7, now())`;
-      const whereToday = `${f.issued} >= '${todayISO}T00:00:00' AND ${f.issued} < dateadd('day',1,'${todayISO}T00:00:00')`;
+        const f = cfg.fields;
+        const todayISO = new Date().toISOString().slice(0,10);
+        const where30 = `${f.issued} >= dateadd('day',-30, now())`;
+        const where90 = `${f.issued} >= dateadd('day',-90, now())`;
+        const where7  = `${f.issued} >= dateadd('day',-7, now())`;
+        const whereToday = `${f.issued} >= '${todayISO}T00:00:00' AND ${f.issued} < dateadd('day',1,'${todayISO}T00:00:00')`;
+        const fieldsWanted = [f.issued,f.type,f.applied,f.address,"contractor","value","work_description","description"].filter(Boolean).join(", ");
 
-      const fieldsWanted = [f.issued,f.type,f.applied,f.address,"contractor","value","work_description","description"].filter(Boolean).join(", ");
+        (async () => {
+          let rows30 = await soql(cfg.portal, cfg.dataset, { "$select": fieldsWanted, "$where": where30, "$order": `${f.issued} DESC`, "$limit": 50000 });
+          if(rows30.length === 0){
+            rows30 = await soql(cfg.portal, cfg.dataset, { "$select": fieldsWanted, "$where": where90, "$order": `${f.issued} DESC`, "$limit": 50000 });
+            const fb = document.getElementById("fallback-badge");
+            if (fb) fb.style.display = "inline-block";
+            ["window-label-1","window-label-2","window-label-3"].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = "90"; });
+          }
 
-      let rows30 = await soql(cfg.portal, cfg.dataset, { "$select": fieldsWanted, "$where": where30, "$order": `${f.issued} DESC`, "$limit": 50000 });
-      if(rows30.length === 0){
-        rows30 = await soql(cfg.portal, cfg.dataset, { "$select": fieldsWanted, "$where": where90, "$order": `${f.issued} DESC`, "$limit": 50000 });
-        document.getElementById("fallback-badge").style.display = "inline-block";
-        document.getElementById("window-label-1").textContent = "90";
-        document.getElementById("window-label-2").textContent = "90";
-        document.getElementById("window-label-3").textContent = "90";
-      }
+          const last7count = await soql(cfg.portal, cfg.dataset, { "$select": "count(1) as c", "$where": where7, "$limit": 1 });
+          const todaycount = await soql(cfg.portal, cfg.dataset, { "$select": "count(1) as c", "$where": whereToday, "$limit": 1 });
+          const issued7El = document.getElementById("issued7");
+          const todayEl = document.getElementById("today");
+          if (issued7El) issued7El.textContent = String(+last7count?.[0]?.c || 0);
+          if (todayEl) todayEl.textContent  = String(+todaycount?.[0]?.c || 0);
 
-      const last7count = await soql(cfg.portal, cfg.dataset, { "$select": "count(1) as c", "$where": where7, "$limit": 1 });
-      const todaycount = await soql(cfg.portal, cfg.dataset, { "$select": "count(1) as c", "$where": whereToday, "$limit": 1 });
+          // median
+          const medianEl = document.getElementById("median");
+          const typeHdr = document.getElementById("type-metric-h");
+          const medianNote = document.getElementById("median-note");
+          if(f.applied){
+            const diffs = rows30.map(r=>{
+              const a = r[f.applied], i = r[f.issued];
+              const da = a ? new Date(a) : NaN, di = i ? new Date(i) : NaN;
+              return (di-da)/86400000;
+            }).filter(x=>isFinite(x)&&x>=0);
+            const m = diffs.length ? median(diffs) : null;
+            if (medianEl) medianEl.textContent = m!=null ? m.toFixed(1) : "—";
+            if (typeHdr) typeHdr.textContent = "Median days";
+            if (medianNote) medianNote.textContent = "";
+          } else {
+            if (medianEl) medianEl.textContent = "N/A";
+            if (typeHdr) typeHdr.textContent = "—";
+            if (medianNote) medianNote.textContent = "This dataset lacks application dates; showing activity and leaderboards only.";
+          }
 
-      document.getElementById("issued7").textContent = String(+last7count?.[0]?.c || 0);
-      document.getElementById("today").textContent  = String(+todaycount?.[0]?.c || 0);
+          // by type
+          const byType = {};
+          for(const r of rows30){ const t = r[f.type] || "Other"; (byType[t] ||= []).push(r); }
+          const typeRows = Object.entries(byType).map(([t,arr])=>{
+            let med="—";
+            if(f.applied){
+              const d = arr.map(x=>{
+                const a=x[f.applied], i=x[f.issued];
+                const da=a?new Date(a):NaN, di=i?new Date(i):NaN;
+                return (di-da)/86400000;
+              }).filter(x=>isFinite(x)&&x>=0);
+              const m = d.length ? median(d) : null; med = m!=null ? m.toFixed(1) : "—";
+            }
+            return { t, med, n: arr.length };
+          }).sort((a,b)=>b.n-a.n).slice(0,16);
+          const typesBody = document.getElementById("types");
+          if (typesBody) typesBody.innerHTML = typeRows.length
+            ? typeRows.map(r=>`<tr><td>${esc(r.t)}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join("")
+            : `<tr><td colspan="3">No permit rows in the selected window.</td></tr>`;
 
-      if(f.applied){
-        const diffs = rows30.map(r=>{
-          const a = r[f.applied], i = r[f.issued];
-          const da = a ? new Date(a) : NaN, di = i ? new Date(i) : NaN;
-          return (di-da)/86400000;
-        }).filter(x=>isFinite(x)&&x>=0);
-        const m = diffs.length ? median(diffs) : null;
-        document.getElementById("median").textContent = m!=null ? m.toFixed(1) : "—";
-        document.getElementById("type-metric-h").textContent = "Median days";
-        document.getElementById("median-note").textContent = "";
-      } else {
-        document.getElementById("median").textContent = "N/A";
-        document.getElementById("type-metric-h").textContent = "—";
-        document.getElementById("median-note").textContent = "This dataset lacks application dates; showing activity and leaderboards only.";
-      }
+          // contractors
+          const byCtr = {};
+          for(const r of rows30){
+            const name = (r.contractor || "").toString().trim();
+            const key = name || "(Unspecified)";
+            const val = Number(String(r.value).replace(/[^0-9.-]/g,""));
+            if(!byCtr[key]) byCtr[key] = { n:0, sum:0 };
+            byCtr[key].n += 1;
+            if(isFinite(val)) byCtr[key].sum += val;
+          }
+          const ctrRows = Object.entries(byCtr)
+            .filter(([name])=>name && name!=="(Unspecified)")
+            .map(([name,s])=>({ name, n:s.n, sum:s.sum, avg: s.n ? s.sum/s.n : 0 }))
+            .sort((a,b)=> b.n - a.n || b.sum - a.sum)
+            .slice(0,25);
+          const ctrTbody = document.getElementById("contractors");
+          if (ctrTbody) ctrTbody.innerHTML = ctrRows.length
+            ? ctrRows.map(r=>`<tr><td>${esc(r.name)}</td><td class="nowrap">${r.n}</td><td class="nowrap">${money(r.sum)}</td><td class="nowrap">${money(r.avg)}</td></tr>`).join("")
+            : `<tr><td colspan="4">No contractor activity in the selected window.</td></tr>`;
 
-      const byType = {};
-      for(const r of rows30){
-        const t = r[f.type] || "Other";
-        (byType[t] ||= []).push(r);
-      }
-      const typeRows = Object.entries(byType).map(([t,arr])=>{
-        let med="—";
-        if(f.applied){
-          const d = arr.map(x=>{
-            const a=x[f.applied], i=x[f.issued];
-            const da=a?new Date(a):NaN, di=i?new Date(i):NaN;
-            return (di-da)/86400000;
-          }).filter(x=>isFinite(x)&&x>=0);
-          const m = d.length ? median(d) : null; med = m!=null ? m.toFixed(1) : "—";
-        }
-        return { t, med, n: arr.length };
-      }).sort((a,b)=>b.n-a.n).slice(0,16);
-      document.getElementById("types").innerHTML = typeRows.length
-        ? typeRows.map(r=>`<tr><td>${esc(r.t)}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join("")
-        : `<tr><td colspan="3">No permit rows in the selected window.</td></tr>`;
+          // recent (7d)
+          const fieldsRecent = [f.issued,f.type,f.address,"value","contractor","work_description","description"].filter(Boolean).join(", ");
+          const recentRows = await soql(cfg.portal, cfg.dataset, { "$select": fieldsRecent, "$where": where7, "$order": `${f.issued} DESC`, "$limit": 5000 });
+          let shown = recentRows.map(r=>({
+            issued: r[f.issued] ? new Date(r[f.issued]) : NaN,
+            type: r[f.type] || "Other",
+            address: r[f.address] || "",
+            value: r.value || "",
+            contractor: r.contractor || "",
+            desc: r.work_description || r.description || ""
+          })).sort((a,b)=> b.issued - a.issued);
+          const tbody = document.getElementById("recent");
+          const counter = document.getElementById("rowcount");
+          const render = () => {
+            if (counter) counter.textContent = shown.length ? `${shown.length} rows` : "No permits in the last 7 days.";
+            if (tbody) tbody.innerHTML = shown.map(r=>`
+              <tr>
+                <td class="nowrap">${fmtDate(r.issued)}</td>
+                <td>${esc(r.type)}</td>
+                <td>${esc(r.address)}</td>
+                <td class="nowrap">${money(r.value)}</td>
+                <td>${esc(r.contractor)}</td>
+                <td>${esc(String(r.desc).slice(0,140))}${String(r.desc).length>140?"…":""}</td>
+              </tr>
+            `).join("");
+          };
+          render();
+          document.getElementById("filter")?.addEventListener("input", e => {
+            const q = e.target.value.toLowerCase();
+            shown = recentRows.filter(x =>
+              [x[f.type], x[f.address], x.contractor, (x.work_description||x.description||"")].some(v => String(v||"").toLowerCase().includes(q))
+            ).map(r=>({
+              issued: r[f.issued] ? new Date(r[f.issued]) : NaN,
+              type: r[f.type] || "Other",
+              address: r[f.address] || "",
+              value: r.value || "",
+              contractor: r.contractor || "",
+              desc: r.work_description || r.description || ""
+            })).sort((a,b)=> b.issued - a.issued);
+            render();
+          });
 
-      const byCtr = {};
-      for(const r of rows30){
-        const name = (r.contractor || "").toString().trim();
-        const key = name || "(Unspecified)";
-        const val = Number(String(r.value).replace(/[^0-9.-]/g,""));
-        if(!byCtr[key]) byCtr[key] = { n:0, sum:0 };
-        byCtr[key].n += 1;
-        if(isFinite(val)) byCtr[key].sum += val;
-      }
-      const ctrRows = Object.entries(byCtr)
-        .filter(([name])=>name && name!=="(Unspecified)")
-        .map(([name,s])=>({ name, n:s.n, sum:s.sum, avg: s.n ? s.sum/s.n : 0 }))
-        .sort((a,b)=> b.n - a.n || b.sum - a.sum)
-        .slice(0,25);
-      const ctrTbody = document.getElementById("contractors");
-      ctrTbody.innerHTML = ctrRows.length
-        ? ctrRows.map(r=>`<tr><td><span class="link" data-ctr="${esc(r.name)}">${esc(r.name)}</span></td><td class="nowrap">${r.n}</td><td class="nowrap">${money(r.sum)}</td><td class="nowrap">${money(r.avg)}</td></tr>`).join("")
-        : `<tr><td colspan="4">No contractor activity in the selected window.</td></tr>`;
-
-      const fieldsRecent = [f.issued,f.type,f.address,"value","contractor","work_description","description"].filter(Boolean).join(", ");
-      const recentRows = await soql(cfg.portal, cfg.dataset, { "$select": fieldsRecent, "$where": where7, "$order": `${f.issued} DESC`, "$limit": 5000 });
-      let shown = recentRows.map(r=>({
-        issued: r[f.issued] ? new Date(r[f.issued]) : NaN,
-        type: r[f.type] || "Other",
-        address: r[f.address] || "",
-        value: r.value || "",
-        contractor: r.contractor || "",
-        desc: r.work_description || r.description || ""
-      })).sort((a,b)=> b.issued - a.issued);
-
-      const tbody = document.getElementById("recent");
-      const counter = document.getElementById("rowcount");
-      const render = () => {
-        counter.textContent = shown.length ? `${shown.length} rows` : "No permits in the last 7 days.";
-        tbody.innerHTML = shown.map(r=>`
-          <tr>
-            <td class="nowrap">${fmtDate(r.issued)}</td>
-            <td>${esc(r.type)}</td>
-            <td>${esc(r.address)}</td>
-            <td class="nowrap">${money(r.value)}</td>
-            <td>${esc(r.contractor)}</td>
-            <td>${esc(String(r.desc).slice(0,140))}${String(r.desc).length>140?"…":""}</td>
-          </tr>
-        `).join("");
-      };
-
-      const filterBox = document.getElementById("filter");
-      filterBox.addEventListener("input", e => {
-        const q = e.target.value.toLowerCase();
-        shown = recentRows.filter(x =>
-          [x[f.type], x[f.address], x.contractor, (x.work_description||x.description||"")].some(v => String(v||"").toLowerCase().includes(q))
-        ).map(r=>({
-          issued: r[f.issued] ? new Date(r[f.issued]) : NaN,
-          type: r[f.type] || "Other",
-          address: r[f.address] || "",
-          value: r.value || "",
-          contractor: r.contractor || "",
-          desc: r.work_description || r.description || ""
-        })).sort((a,b)=> b.issued - a.issued);
-        render();
-      });
-
-      ctrTbody.querySelectorAll("[data-ctr]").forEach(el=>{
-        el.addEventListener("click", ()=>{
-          const name = el.getAttribute("data-ctr");
-          filterBox.value = name;
-          const url = new URL(location.href); url.searchParams.set("contractor", name); history.replaceState({}, "", url.toString());
-          filterBox.dispatchEvent(new Event("input"));
-          tbody.closest("div").scrollIntoView({ behavior:"smooth", block:"start" });
-        });
-      });
-
-      const initCtr = new URLSearchParams(location.search).get("contractor");
-      if(initCtr){ filterBox.value = initCtr; filterBox.dispatchEvent(new Event("input")); } else { render(); }
-    }
-
-    async function safeLoad(){ try{ document.getElementById('errbox').style.display='none'; await load(); } catch(e){ fatal(e.message||e); } }
-
-    buildCityPicker();
-    document.getElementById('last-updated').textContent = new Date().toLocaleString();
-    safeLoad();
+          document.getElementById("download")?.addEventListener("click", ()=>{
+            const rows = (shown.length ? shown : []).map(r=>[
+              fmtDate(r.issued), r.type, r.address.replace(/,/g," "), String(r.value||""), r.contractor.replace(/,/g," "), String(r.desc||"").replace(/\s+/g," ").replace(/,/g," ")
+            ]);
+            const header = ["issued","type","address","value","contractor","description"];
+            const csv = [header, ...rows].map(a=>a.join(",")).join("\n");
+            const blob = new Blob([csv], {type:"text/csv"});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href = url; a.download = `austin-recent-permits.csv`; a.click(); URL.revokeObjectURL(url);
+          });
+        })().catch(fatal);
+      } catch (e) { fatal(e.message); }
+    });
+  })();
   </script>
 </body>
 </html>
