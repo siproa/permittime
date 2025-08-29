@@ -6,12 +6,13 @@
   <title>PermitTime – Live permit activity by city</title>
   <meta name="description" content="Daily permit activity by city. Counts, medians (where available), top contractors, and recent permits with type, address, value, and contractor." />
   <style>
-    :root { --fg:#111; --muted:#666; --line:#e5e5e5; --bg:#fff; }
+    :root { --fg:#111; --muted:#666; --line:#e5e5e5; --bg:#fff; --warn:#b00020; --warnbg:#ffe8ec; }
     html, body { height: 100%; }
     body { margin: 0; font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); }
     header { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
     header h1 { font-size: 18px; margin: 0; }
-    .city-select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+    .city-select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+      min-width: 160px; color: var(--fg); background: var(--bg); }
     main { max-width: 1100px; margin: 24px auto; padding: 0 20px 60px; }
     .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
     .card { border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
@@ -30,14 +31,21 @@
     .muted { color: var(--muted); }
     .nowrap { white-space: nowrap; }
     .link { color:#0b62ff; cursor:pointer; text-decoration:underline; }
+    .err { background: var(--warnbg); color: var(--warn); border:1px solid var(--warn); padding:10px 12px; margin:10px 20px 0; border-radius:10px; font-size:13px; }
   </style>
 </head>
 <body>
   <header>
     <h1>PermitTime</h1>
-    <select class="city-select" id="city"></select>
+    <select class="city-select" id="city">
+      <!-- Static fallback so the selector is never empty even if JS crashes -->
+      <option value="austin">Austin, TX</option>
+      <option value="dallas">Dallas, TX</option>
+    </select>
     <span class="muted">Auto-updated daily from official open data. Not for permitting advice.</span>
   </header>
+
+  <div id="errbox" style="display:none" class="err"></div>
 
   <main>
     <div class="kpis">
@@ -119,7 +127,16 @@
   </footer>
 
   <script>
-    // Cities. Austin is active; Dallas is stale but left in the list.
+    // Show a visible error box when something goes sideways
+    function fatal(msg){
+      console.error(msg);
+      const box = document.getElementById('errbox');
+      box.textContent = 'Error: ' + msg;
+      box.style.display = 'block';
+    }
+    window.addEventListener('error', e => fatal(e.message));
+
+    // Cities
     const CITIES = {
       austin: { name: "Austin, TX", portal: "https://data.austintexas.gov/resource/", dataset: "3syk-w9eu.json" },
       dallas: { name: "Dallas, TX", portal: "https://www.dallasopendata.com/resource/", dataset: "e7gq-4sah.json" }
@@ -130,11 +147,13 @@
       const qp = new URLSearchParams(location.search).get("city");
       return (path && CITIES[path]) ? path : (qp && CITIES[qp]) ? qp : "austin";
     }
+
     function buildCityPicker(){
       const sel = document.getElementById('city');
+      // Rebuild options from config so labels are always present
       sel.innerHTML = Object.entries(CITIES).map(([slug,c]) => `<option value="${slug}">${c.name}</option>`).join('');
       sel.value = getCitySlug();
-      sel.addEventListener('change', () => { history.pushState({}, '', '/' + sel.value); load(); });
+      sel.addEventListener('change', () => { history.pushState({}, '', '/' + sel.value); safeLoad(); });
     }
 
     // Proxy via Vercel serverless (api/soql.js)
@@ -146,28 +165,30 @@
       clean.limit = params["$limit"] || 20000;
       const q = new URLSearchParams({ portal, dataset, ...clean });
       const r = await fetch(`/api/soql?${q.toString()}`);
-      const text = await r.text();
+      const txt = await r.text();
       let json = null;
-      try { json = JSON.parse(text); } catch {}
-      if(!r.ok || !Array.isArray(json)) throw new Error(json?.message || `Fetch failed (${r.status})`);
+      try { json = JSON.parse(txt); } catch {}
+      if(!r.ok || !Array.isArray(json)) throw new Error((json && json.message) || `Fetch failed (${r.status})`);
       return json;
     }
 
+    // Auto-detect fields with guardrails
     async function detectFields(cfg){
       const sample = await soql(cfg.portal, cfg.dataset, { "$limit": 1 });
       const keys = Object.keys(sample[0] || {});
       const has = k => keys.includes(k);
       const find = list => list.find(has);
 
-      return {
-        issued:  find(["issued_date","issue_date","date_issued","issueddate","issue_dt","issued"]),
-        applied: find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt","applicationdate"]),
-        type:    find(["permit_type","work_type","permitclass","permit_class","classdesc","class_desc","description","type","category","permit_description","work_description"]),
-        address: find(["street_address","address","address_full","site_address","property_address","location","streetaddress"]),
-        contractor: find(["contractor","contractor_name","applicant","builder","licensee","company_name","business_name"]),
-        value:   find(["value","job_value","project_value","valuation","totaljobvalue","estimated_value","estimated_cost"]),
-        desc:    find(["work_description","description","scope","remarks","project_description","desc"])
-      };
+      // Prefer known BLDS-style names; fall back if missing
+      const issued  = find(["issued_date","issue_date","date_issued","issueddate","issue_dt","issued"]);
+      const applied = find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt","applicationdate"]);
+      const type    = find(["permit_type","work_type","permitclass","permit_class","classdesc","class_desc","description","type","category","permit_description","work_description"]);
+      const address = find(["street_address","address","address_full","site_address","property_address","location","streetaddress"]);
+      const contractor = find(["contractor","contractor_name","applicant","builder","licensee","company_name","business_name"]);
+      const value   = find(["value","job_value","project_value","valuation","totaljobvalue","estimated_value","estimated_cost"]);
+      const desc    = find(["work_description","description","scope","remarks","project_description","desc"]);
+
+      return { issued, applied, type, address, contractor, value, desc };
     }
 
     const dayMs = 86400000;
@@ -195,6 +216,7 @@
       const ds = cfg.portal.replace("/resource/","/d/") + datasetId;
       document.getElementById("dataset-link").href = ds;
 
+      // detect fields
       const f = await detectFields(cfg);
       if(!f.issued) throw new Error("Dataset missing issued date field");
 
@@ -312,32 +334,22 @@
         render();
       };
 
-      // wire search box
       const filterBox = document.getElementById("filter");
       filterBox.addEventListener("input", e => applyFilter(e.target.value));
 
-      // wire contractor click -> filter + URL param
       ctrTbody.querySelectorAll("[data-ctr]").forEach(el => {
         el.addEventListener("click", () => {
           const name = el.getAttribute("data-ctr");
           filterBox.value = name;
           setContractorParam(name);
           applyFilter(name);
-          // Scroll to recent table
           document.getElementById("recent").closest("div").scrollIntoView({ behavior: "smooth", block: "start" });
         });
       });
 
-      // deep-link: ?contractor=...
       const initCtr = new URLSearchParams(location.search).get("contractor");
-      if(initCtr){
-        filterBox.value = initCtr;
-        applyFilter(initCtr);
-      } else {
-        render();
-      }
+      if(initCtr){ filterBox.value = initCtr; applyFilter(initCtr); } else { render(); }
 
-      // CSV download
       document.getElementById("download").onclick = ()=>{
         const rows = shown.map(r=>[
           fmtDate(r.issued),
@@ -357,16 +369,20 @@
       };
     }
 
+    async function safeLoad(){
+      try {
+        document.getElementById('errbox').style.display = 'none';
+        await load();
+      } catch (e) {
+        fatal(e.message || e);
+        // Leave placeholders so the page doesn’t look broken, but show the error.
+      }
+    }
+
     buildCityPicker();
-    load().catch(err => {
-      console.error(err);
-      document.getElementById('median').textContent = '—';
-      document.getElementById('issued7').textContent = '—';
-      document.getElementById('today').textContent  = '—';
-      document.getElementById('types').innerHTML = `<tr><td colspan="3">Could not load data. Try again later.</td></tr>`;
-      document.getElementById('contractors').innerHTML = `<tr><td colspan="4">Could not load data. Try again later.</td></tr>`;
-      document.getElementById('recent').innerHTML = `<tr><td colspan="6">Could not load data. Try again later.</td></tr>`;
-    });
+    document.getElementById('city').value = getCitySlug();  // ensure visible on first paint
+    document.getElementById('last-updated').textContent = new Date().toLocaleString(); // show something even before data
+    safeLoad();
   </script>
 </body>
 </html>
