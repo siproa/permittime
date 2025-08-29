@@ -3,35 +3,39 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PermitTime – Live permit wait times</title>
-  <meta name="description" content="Real-time permit issuance timelines by city. Auto-updated from official open-data portals." />
+  <title>PermitTime – Live permit activity by city</title>
+  <meta name="description" content="Daily permit activity by city. Counts, medians (where available), and recent permits list with type, address, value, and contractor." />
   <style>
     :root { --fg:#111; --muted:#666; --line:#e5e5e5; --bg:#fff; }
     html, body { height: 100%; }
-    body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); }
-    header { padding: 20px; border-bottom: 1px solid var(--line); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    body { margin: 0; font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); }
+    header { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
     header h1 { font-size: 18px; margin: 0; }
     .city-select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
-    main { max-width: 1000px; margin: 24px auto; padding: 0 20px 60px; }
-    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+    main { max-width: 1100px; margin: 24px auto; padding: 0 20px 60px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
     .card { border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
-    .card h2 { margin: 0 0 4px; font-size: 28px; }
+    .card h2 { margin: 0 0 4px; font-size: 32px; }
     .card .label { color: var(--muted); font-size: 12px; }
+    .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
     h3 { margin: 28px 0 10px; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; }
-    th { background: #fafafa; }
-    footer { color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding: 16px 20px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top;}
+    th { background: #fafafa; position: sticky; top: 0; z-index: 1;}
+    .toolbar { display:flex; gap:10px; align-items:center; margin: 6px 0 12px; flex-wrap: wrap;}
+    .input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; min-width: 240px;}
+    .btn { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #f8f8f8; cursor: pointer; }
     .pill { display:inline-block; background:#f6f6f6; border:1px solid var(--line); padding:2px 8px; border-radius:999px; font-size:12px; margin-right:6px }
-    .hint { color: var(--muted); font-size: 12px; }
-    .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    footer { color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding: 16px 20px; }
+    .muted { color: var(--muted); }
+    .nowrap { white-space: nowrap; }
   </style>
 </head>
 <body>
   <header>
     <h1>PermitTime</h1>
     <select class="city-select" id="city"></select>
-    <span class="hint">Auto-updated daily from official open data. Not for permitting advice.</span>
+    <span class="muted">Auto-updated daily from official open data. Not for permitting advice.</span>
   </header>
 
   <main>
@@ -49,6 +53,11 @@
         <h2 id="today">—</h2>
         <div class="label">Issued today</div>
       </div>
+      <div class="card">
+        <h2 id="last-updated">—</h2>
+        <div class="label">Last updated (local)</div>
+        <div class="note">Source: <a id="dataset-link" href="#" target="_blank" rel="noopener">official dataset</a></div>
+      </div>
     </div>
 
     <h3>By permit type (last 30 days)</h3>
@@ -57,9 +66,32 @@
       <tbody id="types"></tbody>
     </table>
 
+    <h3 style="margin-top:28px">Recent permits (last 7 days)</h3>
+    <div class="toolbar">
+      <input id="filter" class="input" placeholder="Filter by type, address, contractor, description…" />
+      <button id="download" class="btn">Download CSV</button>
+      <span id="rowcount" class="muted"></span>
+    </div>
+    <div style="max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:12px;">
+      <table>
+        <thead>
+          <tr>
+            <th class="nowrap">Issued</th>
+            <th>Type</th>
+            <th>Address</th>
+            <th class="nowrap">Value</th>
+            <th>Contractor</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody id="recent"></tbody>
+      </table>
+    </div>
+
     <h3>Methodology</h3>
     <p>
-      We compute the difference between <span class="pill">application date</span> and <span class="pill">issue date</span> for permits issued in the last 30 days. Rows with missing or invalid dates are ignored. If a city’s dataset lacks application dates, we show counts and per-type activity but omit the median.
+      We compute the difference between <span class="pill">application date</span> and <span class="pill">issue date</span> for permits issued in the last 30 days.
+      Where application dates aren’t published, we show counts and recent permits but omit the median.
     </p>
   </main>
 
@@ -68,19 +100,17 @@
   </footer>
 
   <script>
-    // Cities. Austin = live feed; Dallas stays for later fixing.
+    // Cities. Austin is active; Dallas is stale but left in the list.
     const CITIES = {
       austin: {
         name: "Austin, TX",
         portal: "https://data.austintexas.gov/resource/",
-        dataset: "3syk-w9eu.json", // Issued Construction Permits
-        fields: { applied: null, issued: null, type: null } // let auto-detect pick correct keys
+        dataset: "3syk-w9eu.json"
       },
       dallas: {
         name: "Dallas, TX",
         portal: "https://www.dallasopendata.com/resource/",
-        dataset: "e7gq-4sah.json",
-        fields: { applied: null, issued: "issued_date", type: "permit_type" }
+        dataset: "e7gq-4sah.json"
       }
     };
 
@@ -113,18 +143,24 @@
       return json;
     }
 
+    // Find field names from a sample row (every city names columns differently, because chaos)
     async function detectFields(cfg){
       const sample = await soql(cfg.portal, cfg.dataset, { "$limit": 1 });
       const keys = Object.keys(sample[0] || {});
       const has = k => keys.includes(k);
       const find = list => list.find(has);
-      const applied = cfg.fields.applied && has(cfg.fields.applied) ? cfg.fields.applied
-        : find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt","applicationdate"]);
-      const issued  = cfg.fields.issued && has(cfg.fields.issued) ? cfg.fields.issued
-        : find(["issued_date","issue_date","date_issued","issueddate","issue_dt"]);
-      const type    = cfg.fields.type && has(cfg.fields.type) ? cfg.fields.type
-        : find(["permit_type","work_type","permitclass","permit_class","permit_description","work_description","description"]);
-      return { applied, issued, type };
+
+      return {
+        // core
+        issued:  find(["issued_date","issue_date","date_issued","issueddate","issue_dt","issued"]),
+        applied: find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt","applicationdate"]),
+        type:    find(["permit_type","work_type","permitclass","permit_class","classdesc","class_desc","description","type","category","permit_description","work_description"]),
+        // details for table
+        address: find(["street_address","address","address_full","site_address","property_address","location","streetaddress"]),
+        contractor: find(["contractor","contractor_name","applicant","builder","licensee","company_name","business_name"]),
+        value:   find(["value","job_value","project_value","valuation","totaljobvalue","estimated_value","estimated_cost"]),
+        desc:    find(["work_description","description","scope","remarks","project_description","desc"])
+      };
     }
 
     function parseDate(v){
@@ -132,83 +168,137 @@
       const d = new Date(v);
       if(!isNaN(d)) return d;
       const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(v);
-      if(m){
-        let y = parseInt(m[3],10); if(y < 100) y += 2000;
-        return new Date(y, parseInt(m[1],10)-1, parseInt(m[2],10));
-      }
+      if(m){ let y = +m[3]; if(y<100) y += 2000; return new Date(y, +m[1]-1, +m[2]); }
       return new Date(NaN);
     }
+    const dayMs = 86400000;
+    const fmtDate = d => d instanceof Date ? d.toISOString().slice(0,10) : "";
 
-    function median(nums){
-      if(!nums.length) return null;
-      nums.sort((a,b)=>a-b);
-      return nums[Math.floor(nums.length/2)];
-    }
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;'}[c]));
+    const money = n => {
+      const x = Number(String(n).replace(/[^0-9.-]/g,""));
+      return isFinite(x) ? x.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0}) : "";
+    };
+    const median = a => { if(!a.length) return null; const b=[...a].sort((x,y)=>x-y); return b[Math.floor(b.length/2)]; };
 
     async function load(){
       const slug = getCitySlug();
       const cfg = CITIES[slug];
       document.title = `PermitTime – ${cfg.name}`;
-      const medianNote = document.getElementById("median-note");
+      document.getElementById("last-updated").textContent = new Date().toLocaleString();
 
+      // dataset link
+      const datasetId = cfg.dataset.replace(".json","");
+      const ds = cfg.portal.replace("/resource/","/d/") + datasetId;
+      const dsLink = document.getElementById("dataset-link");
+      dsLink.href = ds;
+
+      // detect fields
       const f = await detectFields(cfg);
-      if(!f.issued){
-        throw new Error("Dataset missing issued date field");
-      }
+      if(!f.issued){ throw new Error("Dataset missing issued date field"); }
 
-      // Pull and compute locally; a lot of portals store dates as text.
-      const fieldsWanted = [f.issued, f.type, f.applied].filter(Boolean).join(", ");
-      const rows = await soql(cfg.portal, cfg.dataset, {
-        "$select": fieldsWanted,
-        "$order":  `${f.issued} DESC`,
-        "$limit":  20000
-      });
+      // fetch lots of recent rows ordered by issued desc
+      const fieldsWanted = [f.issued,f.type,f.applied,f.address,f.contractor,f.value,f.desc].filter(Boolean).join(", ");
+      const rows = await soql(cfg.portal, cfg.dataset, { "$select": fieldsWanted, "$order": `${f.issued} DESC`, "$limit": 20000 });
 
-      const now = new Date(), dayMs = 86400000, todayISO = now.toISOString().slice(0,10);
+      // normalize
+      const now = new Date();
       const last30 = [];
+      const last7  = [];
       for(const r of rows){
         const di = parseDate(r[f.issued]);
         if(!isFinite(di)) continue;
-        if((now - di)/dayMs <= 30 && (now - di) >= 0){
-          const da = f.applied ? parseDate(r[f.applied]) : NaN;
-          last30.push({ issued: di, applied: da, type: (f.type && r[f.type]) || "Other" });
-        }
+        const obj = {
+          issued: di,
+          applied: f.applied ? parseDate(r[f.applied]) : NaN,
+          type: (f.type && r[f.type]) || "Other",
+          address: f.address ? r[f.address] : "",
+          contractor: f.contractor ? r[f.contractor] : "",
+          value: f.value ? r[f.value] : "",
+          desc: f.desc ? r[f.desc] : ""
+        };
+        if((now - di) >= 0 && (now - di)/dayMs <= 30) last30.push(obj);
+        if((now - di) >= 0 && (now - di)/dayMs <= 7)  last7.push(obj);
       }
 
-      // Counts
-      const issued7 = last30.filter(x => (now - x.issued)/dayMs <= 7).length;
-      const today = last30.filter(x => x.issued.toISOString().slice(0,10) === todayISO).length;
-      document.getElementById("issued7").textContent = String(issued7);
-      document.getElementById("today").textContent = String(today);
+      // KPIs
+      document.getElementById("issued7").textContent = String(last7.length);
+      const todayISO = now.toISOString().slice(0,10);
+      document.getElementById("today").textContent = String(last7.filter(x => fmtDate(x.issued) === todayISO).length);
 
-      // Median
+      // Median if we have application dates
       if(f.applied){
         const diffs = last30.map(x => (x.issued - x.applied)/dayMs).filter(x => isFinite(x) && x >= 0);
         const m = median(diffs);
         document.getElementById("median").textContent = m != null ? m.toFixed(1) : "—";
         document.getElementById("type-metric-h").textContent = "Median days";
-        medianNote.textContent = "";
+        document.getElementById("median-note").textContent = "";
       } else {
         document.getElementById("median").textContent = "N/A";
         document.getElementById("type-metric-h").textContent = "—";
-        medianNote.textContent = "This dataset lacks application dates; showing activity only.";
+        document.getElementById("median-note").textContent = "This dataset lacks application dates; showing activity only.";
       }
 
-      // Table by type
+      // By type (30 days)
       const byType = {};
       for(const x of last30){ (byType[x.type] ||= []).push(x); }
-      const rowsOut = Object.entries(byType).map(([t,arr])=>{
+      const typeRows = Object.entries(byType).map(([t,arr])=>{
         let med = "—";
         if(f.applied){
-          const diffs = arr.map(x => (x.issued - x.applied)/dayMs).filter(x => isFinite(x) && x >= 0);
-          const m = median(diffs); med = m != null ? m.toFixed(1) : "—";
+          const d = arr.map(x => (x.issued - x.applied)/dayMs).filter(x => isFinite(x) && x >= 0);
+          const m = median(d); med = m != null ? m.toFixed(1) : "—";
         }
         return { t, med, n: arr.length };
       }).sort((a,b)=>b.n-a.n).slice(0,16);
-
-      document.getElementById("types").innerHTML = rowsOut.length
-        ? rowsOut.map(r=>`<tr><td>${r.t}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join("")
+      document.getElementById("types").innerHTML = typeRows.length
+        ? typeRows.map(r=>`<tr><td>${esc(r.t)}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join("")
         : `<tr><td colspan="3">No permit rows in the last 30 days.</td></tr>`;
+
+      // Recent permits table (7 days) with filter + CSV
+      let shown = [...last7].sort((a,b)=>b.issued - a.issued);
+      const tbody = document.getElementById("recent");
+      const counter = document.getElementById("rowcount");
+      const render = () => {
+        counter.textContent = shown.length ? `${shown.length} rows` : "No rows match.";
+        tbody.innerHTML = shown.map(r=>`
+          <tr>
+            <td class="nowrap">${fmtDate(r.issued)}</td>
+            <td>${esc(r.type)}</td>
+            <td>${esc(r.address || "")}</td>
+            <td class="nowrap">${money(r.value)}</td>
+            <td>${esc(r.contractor || "")}</td>
+            <td>${esc(String(r.desc || "").slice(0,140))}${String(r.desc||"").length>140?"…":""}</td>
+          </tr>
+        `).join("");
+      };
+      render();
+
+      document.getElementById("filter").addEventListener("input", e=>{
+        const q = e.target.value.toLowerCase().trim();
+        if(!q){ shown = [...last7].sort((a,b)=>b.issued - a.issued); render(); return; }
+        shown = last7.filter(r =>
+          [r.type, r.address, r.contractor, r.desc].some(v => String(v||"").toLowerCase().includes(q))
+        ).sort((a,b)=>b.issued - a.issued);
+        render();
+      });
+
+      document.getElementById("download").onclick = ()=>{
+        const rows = shown.map(r=>[
+          fmtDate(r.issued),
+          r.type || "",
+          (r.address || "").replace(/,/g," "),
+          String(r.value || ""),
+          (r.contractor || "").replace(/,/g," "),
+          (String(r.desc||"").replace(/\s+/g," ").replace(/,/g," "))
+        ]);
+        const header = ["issued","type","address","value","contractor","description"];
+        const csv = [header, ...rows].map(a=>a.join(",")).join("\n");
+        const blob = new Blob([csv], {type:"text/csv"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `${slug}-recent-permits.csv`; a.click();
+        URL.revokeObjectURL(url);
+      };
     }
 
     buildCityPicker();
@@ -218,6 +308,7 @@
       document.getElementById('issued7').textContent = '—';
       document.getElementById('today').textContent  = '—';
       document.getElementById('types').innerHTML = `<tr><td colspan="3">Could not load data. Try again later.</td></tr>`;
+      document.getElementById('recent').innerHTML = `<tr><td colspan="6">Could not load data. Try again later.</td></tr>`;
     });
   </script>
 </body>
