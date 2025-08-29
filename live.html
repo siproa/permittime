@@ -2,342 +2,344 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PermitTime – Live permit activity by city</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PermitTime – Live permit activity</title>
   <style>
     :root{
-      --bg:#0b0e12; --panel:#0f141b; --line:#1f2630; --fg:#e9eef6; --muted:#93a2b7;
-      --accent:#62a8ff; --good:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+      --bg:#0b0f14; --fg:#e9eef6; --line:#1e2935; --muted:#8fa3b8;
+      --card:#111823; --pill:#1a2431; --accent:#6aa8ff; --warn:#ff7861; --ok:#36c28b;
     }
-    html,body{background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin:0}
-    header{display:flex; gap:16px; align-items:center; padding:14px 18px; border-bottom:1px solid var(--line)}
-    .brand{font-weight:700; font-size:18px}
-    .sub{color:var(--muted); font-size:13px}
-    select{background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 10px}
-    main{max-width:1200px; margin:0 auto; padding:18px}
-    .grid{display:grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap:14px}
-    .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px}
-    .k-label{color:var(--muted); font-size:12px; margin-bottom:8px}
-    .k-value{font-size:34px; line-height:1; font-weight:800}
-    .k-note{color:var(--muted); font-size:12px; margin-top:8px}
-    h3{margin:22px 0 10px; font-size:16px}
-    table{width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden}
-    th,td{padding:10px 12px; border-top:1px solid var(--line); text-align:left; vertical-align:top}
-    thead th{background:rgba(255,255,255,0.02); color:var(--muted)}
-    .toolbar{display:flex; gap:8px; align-items:center; margin:8px 0}
-    .input{background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 10px; width:320px}
-    .btn{display:inline-block; background:#111826; border:1px solid var(--line); color:var(--fg); padding:8px 12px; border-radius:8px; cursor:pointer; font-size:13px}
-    .pill{display:inline-block; background:#10151e; border:1px solid var(--line); padding:2px 8px; border-radius:999px; color:var(--muted); font-size:12px}
-    .muted{color:var(--muted); font-size:12px}
-    .badge{display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); background:#0c1118}
-    .warn{color:#f59e0b}
-    .err{background:#1b1111; border:1px solid #3b1f1f; color:#fca5a5; padding:10px 12px; border-radius:8px; font-size:13px; white-space:pre-wrap}
-    footer{border-top:1px solid var(--line); margin-top:20px; padding:16px; color:var(--muted); font-size:12px}
-    .right{float:right}
-    .t-center{text-align:center}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}
+    .brand{font-size:18px;font-weight:700}
+    select{background:#0f1621;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px 10px}
+    .muted{color:var(--muted)}
+    main{max-width:1180px;margin:24px auto;padding:0 16px}
+    .kpis{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:14px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;min-height:92px}
+    .knum{font-size:28px;font-weight:800;margin-top:6px}
+    .klabel{font-size:12px;color:var(--muted)}
+    .ok{color:var(--ok)}
+    .warn{color:var(--warn)}
+    h2{font-size:16px;margin:28px 0 10px}
+    table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+    thead th{background:#0f1621;color:#b7c5d3;text-align:left;font-weight:600;padding:10px;border-bottom:1px solid var(--line)}
+    tbody td{padding:10px;border-top:1px solid var(--line)}
+    .toolbar{display:flex;gap:8px;justify-content:space-between;align-items:center;margin:10px 0}
+    input[type="text"]{flex:1;background:#0f1621;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px 10px}
+    button{background:#132033;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px 10px;cursor:pointer}
+    .stamp{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#9fb1c5}
+    .badge{display:inline-block;background:#132033;border:1px solid var(--line);color:#b7c5d3;border-radius:999px;font-size:12px;padding:4px 8px}
+    .note{color:#b7c5d3;font-size:12px}
+    .center{display:flex;align-items:center;justify-content:center}
+    .right{display:flex;justify-content:flex-end}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+    @media (max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}}
+    @media (max-width:560px){.kpis{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
   <header>
     <div class="brand">PermitTime</div>
-    <select id="city">
-      <option value="austin" selected>Austin, TX</option>
-    </select>
-    <div class="sub">Auto-updated daily from official open data. Not for permitting advice.</div>
-    <div id="build-stamp" class="right muted" style="margin-left:auto">JS …</div>
+    <div class="muted">Auto-updated daily from official open data. Not for permitting advice.</div>
   </header>
 
   <main>
-    <div id="errbox" class="err" style="display:none"></div>
-
-    <div class="grid" id="kpis">
+    <div class="kpis">
       <div class="card">
-        <div class="k-label">Median days to issue (last 30 days)</div>
-        <div class="k-value" id="median">N/A</div>
-        <div class="k-note" id="median-note">This dataset lacks application dates; showing activity only.</div>
+        <div class="klabel">Median days to issue (last 30 days)</div>
+        <div class="knum" id="median">—</div>
+        <div class="note" id="median-note"></div>
       </div>
       <div class="card">
-        <div class="k-label">Permits issued (last 7 days)</div>
-        <div class="k-value" id="issued7">—</div>
+        <div class="klabel">Permits issued (last 7 days)</div>
+        <div class="knum" id="issued7">—</div>
       </div>
       <div class="card">
-        <div class="k-label">Issued today</div>
-        <div class="k-value" id="today">—</div>
+        <div class="klabel">Issued today</div>
+        <div class="knum" id="today">—</div>
       </div>
       <div class="card">
-        <div class="k-label">Last updated (local)</div>
-        <div class="k-value" id="updated-local">—</div>
-        <div class="k-note">Source: <a id="dataset-link" href="#" target="_blank" rel="noopener">official dataset</a></div>
+        <div class="klabel">Last updated (local)</div>
+        <div class="knum" id="last-updated">—</div>
+        <div class="note">Source: <a id="dataset-link" href="#" target="_blank" rel="noopener">official dataset</a></div>
       </div>
     </div>
 
-    <h3>By permit type (last 30 days)</h3>
+    <h2>By permit type (last 30 days)</h2>
     <table>
-      <thead>
-        <tr>
-          <th style="width:40%">Type</th>
-          <th class="t-center">Median days</th>
-          <th class="t-center">Count</th>
-        </tr>
-      </thead>
-      <tbody id="types"></tbody>
+      <thead><tr><th>Type</th><th>Median days</th><th>Count</th></tr></thead>
+      <tbody id="types"><tr><td colspan="3" class="center muted">Loading…</td></tr></tbody>
     </table>
 
-    <h3>Top contractors (last 30 days)</h3>
-    <div class="muted">Click a contractor to filter recent permits and get a shareable URL.</div>
+    <h2>Top contractors (last 30 days)</h2>
+    <div class="toolbar"><span class="note">Click a contractor to filter recent permits and get a shareable URL.</span></div>
     <table>
-      <thead>
-        <tr>
-          <th>Contractor</th>
-          <th class="t-center">Permits</th>
-          <th class="t-center">Total value</th>
-          <th class="t-center">Avg value</th>
-        </tr>
-      </thead>
-      <tbody id="contractors"></tbody>
+      <thead><tr><th>Contractor</th><th>Permits</th><th>Total value</th><th>Avg value</th></tr></thead>
+      <tbody id="contractors"><tr><td colspan="4" class="center muted">Loading…</td></tr></tbody>
     </table>
 
-    <h3>Recent permits (last 7 days)</h3>
+    <h2>Recent permits (last 7 days)</h2>
     <div class="toolbar">
-      <input id="filter" class="input" placeholder="Filter by type, address, contractor, description…" />
-      <button id="download" class="btn">Download CSV</button>
+      <input id="filter" type="text" placeholder="Filter by type, address, contractor, description…" />
+      <button id="download">Download CSV</button>
     </div>
     <table>
       <thead>
-        <tr>
-          <th style="width:110px">Issued</th>
-          <th style="width:160px">Type</th>
-          <th>Address</th>
-          <th class="t-center" style="width:120px">Value</th>
-          <th style="width:200px">Contractor</th>
-          <th>Description</th>
-        </tr>
+        <tr><th>Issued</th><th>Type</th><th>Address</th><th>Value</th><th>Contractor</th><th>Description</th></tr>
       </thead>
-      <tbody id="recent"></tbody>
+      <tbody id="recent"><tr><td colspan="6" class="center muted">Loading…</td></tr></tbody>
     </table>
 
-    <h3>Methodology</h3>
-    <p class="muted">
-      We compute the difference between <span class="pill">application date</span> and <span class="pill">issue date</span>
+    <h2>Methodology</h2>
+    <p class="note">
+      We compute the difference between <span class="badge">application date</span> and <span class="badge">issue date</span>
       for permits issued in the last 30 days. Where application dates aren’t published, we show counts,
       leaderboards and recent permits but omit the median.
     </p>
+
+    <div class="right"><div class="stamp" id="build-stamp">JS OK</div></div>
   </main>
 
-  <footer class="muted">
-    Data is provided as-is from municipal open-data portals. Always check the official city site for definitive status.
-  </footer>
-
   <script>
-    // --- tiny helpers ---
-    const esc = s => String(s ?? '').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
-    const money = v => {
-      const n = Number(v);
-      return isFinite(n) ? n.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}) : '—';
-    };
-    const fmtDate = s => {
-      const d = new Date(s);
-      if (isNaN(+d)) return '';
-      return d.toISOString().slice(0,10);
-    };
-    const isoLocalYMD = (d) => {
-      // 'YYYY-MM-DD' in local time (no Z)
-      const z = new Date(d.getTime() - d.getTimezoneOffset()*60000);
-      return z.toISOString().slice(0,10);
-    };
-
-    // build-time stamp
-    document.getElementById('build-stamp').textContent = 'JS OK • ' + new Date().toLocaleString();
-
-    // --- city config (Austin only for now) ---
-    const CITY = {
+  (function(){
+    // ---- configuration for Austin, TX (Socrata dataset 3syk-w9eu) ----
+    const C = {
       name: 'Austin, TX',
       portal: 'https://data.austintexas.gov',
       dataset: '3syk-w9eu.json',
-      cols: {
+      // field map (verified against sample rows)
+      f: {
         issued: 'issue_date',
+        applied: 'applieddate',          // Austin uses 'applieddate' (NOT 'applicationdate')
         type: 'permit_type_desc',
         address: 'permit_location',
         contractor: 'contractor',
-        value: 'value',            // text → cast when aggregating
-        desc1: 'work_description',
-        desc2: 'description'
-      },
-      datasetPage: 'https://data.austintexas.gov/d/3syk-w9eu'
+        desc: 'work_description',
+        value: 'value'                    // may be empty / string; handled as numeric fallback
+      }
     };
 
-    // dataset link + local updated time
-    document.getElementById('dataset-link').href = CITY.datasetPage;
-    document.getElementById('updated-local').textContent = new Date().toLocaleString();
+    // basic helpers
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+    const fmtDate = s => {
+      if(!s) return '—';
+      const d = new Date(s);
+      if(isNaN(d)) return '—';
+      // show local time (short)
+      return d.toLocaleString(undefined,{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    };
+    const money = v => {
+      const n = Number(v);
+      if(!isFinite(n) || n===0) return '—';
+      try { return n.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}); }
+      catch { return '$'+Math.round(n).toLocaleString(); }
+    };
+    const median = arr => {
+      if(!arr.length) return null;
+      const s = arr.slice().sort((a,b)=>a-b);
+      const i = Math.floor(s.length/2);
+      return s.length%2 ? s[i] : (s[i-1]+s[i])/2;
+    };
 
-    // --- SOQL fetch via our /api/soql proxy ---
+    // build deterministic ISO windows (no dateadd/now in SOQL)
+    const now = new Date();
+    const todayISO  = new Date(now.getFullYear(),now.getMonth(),now.getDate()).toISOString().slice(0,10);
+    const iso = (daysAgo) => {
+      const d = new Date(now.getTime() - daysAgo*864e5);
+      return new Date(d.getFullYear(),d.getMonth(),d.getDate()).toISOString().slice(0,10);
+    };
+    const start7  = iso(7);
+    const start30 = iso(30);
+
+    const W7  = `(${C.f.issued} >= '${start7}T00:00:00' AND ${C.f.issued} <= '${todayISO}T23:59:59')`;
+    const W30 = `(${C.f.issued} >= '${start30}T00:00:00' AND ${C.f.issued} <= '${todayISO}T23:59:59')`;
+    const TODAY = `(${C.f.issued} >= '${todayISO}T00:00:00' AND ${C.f.issued} <= '${todayISO}T23:59:59')`;
+
+    // Proxy call to our API
     async function soql(params){
-      const qp = Object.entries(params)
-        .filter(([,v]) => v!=null && v!=='')
-        .map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-        .join('&');
-      const url = `/api/soql?portal=${encodeURIComponent(CITY.portal + '/resource/')}&dataset=${encodeURIComponent(CITY.dataset)}&${qp}`;
+      const q = new URLSearchParams();
+      q.set('portal', C.portal + '/resource/');
+      q.set('dataset', C.dataset);
+      for(const [k,v] of Object.entries(params)){
+        if(v==null) continue;
+        q.set(k, v);
+      }
+      const url = `/api/soql?${q.toString()}`;
       const r = await fetch(url);
-      if (!r.ok) throw new Error(`Fetch ${r.status}`);
-      const t = await r.text();
-      let j;
-      try{ j = JSON.parse(t) }catch{ j = null }
-      if (!j || (j.message && !Array.isArray(j))) throw new Error(j?.message || 'Query error');
+      if(!r.ok) throw new Error(`Fetch ${r.status}`);
+      const j = await r.json();
+      if(!Array.isArray(j)) throw new Error('Bad JSON');
       return j;
     }
 
+    // Stamp + dataset link
+    document.getElementById('build-stamp').textContent = `JS OK • ${fmtDate(new Date())}`;
+    document.getElementById('dataset-link').href = `${C.portal}/resource/${C.dataset.replace('.json','')}`;
+
+    // ---- main flow: single 30-day pull and derive ----
     (async () => {
-      const c = CITY.cols;
-      const now = new Date();
-      const todayYMD = isoLocalYMD(now);
-      const tomorrowYMD = isoLocalYMD(new Date(now.getTime()+86400000));
-      const start7 = isoLocalYMD(new Date(now.getTime()-6*86400000)) + 'T00:00:00';
-      const start30 = isoLocalYMD(new Date(now.getTime()-29*86400000)) + 'T00:00:00';
-      const dayStart = todayYMD + 'T00:00:00';
-      const nextDayStart = tomorrowYMD + 'T00:00:00';
+      // rows used for: median (if applied present), by-type, contractors, recent, KPIs
+      const fields = [C.f.applied, C.f.issued, C.f.type, C.f.address, C.f.contractor, C.f.desc, C.f.value].join(',');
+      const rows30 = await soql({
+        select: fields,
+        where: W30,
+        order: `${C.f.issued} DESC`,
+        limit: 50000
+      });
 
-      const errbox = document.getElementById('errbox');
-      const addErr = (msg) => {
-        errbox.style.display = '';
-        errbox.textContent += (errbox.textContent ? '\n' : '') + msg;
+      // KPIs derived locally
+      const issued7 = rows30.filter(r => r[C.f.issued] >= `${start7}T00:00:00`).length;
+      const issuedToday = rows30.filter(r => r[C.f.issued] >= `${todayISO}T00:00:00`).length;
+      document.getElementById('issued7').textContent = issued7.toString();
+      document.getElementById('today').textContent  = issuedToday.toString();
+      document.getElementById('last-updated').textContent = fmtDate(new Date());
+
+      // MEDIAN: only for rows that have applied + issued
+      const diffs = rows30
+        .map(r => {
+          const a = r[C.f.applied] ? new Date(r[C.f.applied]) : NaN;
+          const i = r[C.f.issued]  ? new Date(r[C.f.issued])  : NaN;
+          if(!isFinite(a) || !isFinite(i)) return null;
+          const days = (i - a) / 86400000;
+          return isFinite(days) && days >= 0 ? days : null;
+        })
+        .filter(v => v!=null);
+
+      if(diffs.length){
+        const med = median(diffs);
+        document.getElementById('median').textContent = med.toFixed(1);
+        document.getElementById('median-note').textContent = '';
+      }else{
+        document.getElementById('median').textContent = 'N/A';
+        document.getElementById('median-note').textContent =
+          'This dataset lacks usable application dates; showing activity only.';
+      }
+
+      // BY TYPE (count + per-type median when both dates are present)
+      const byTypeMap = new Map(); // type => {n, diffs[]}
+      for(const r of rows30){
+        const t = (r[C.f.type] || '').trim() || 'Other';
+        let bucket = byTypeMap.get(t);
+        if(!bucket){ bucket = { n:0, diffs:[] }; byTypeMap.set(t, bucket); }
+        bucket.n++;
+        const a = r[C.f.applied] ? new Date(r[C.f.applied]) : NaN;
+        const i = r[C.f.issued]  ? new Date(r[C.f.issued])  : NaN;
+        if(isFinite(a) && isFinite(i)){
+          const d = (i - a) / 86400000;
+          if(isFinite(d) && d >= 0) bucket.diffs.push(d);
+        }
+      }
+      const types = [...byTypeMap.entries()].sort((a,b)=>b[1].n - a[1].n);
+      document.getElementById('types').innerHTML =
+        types.map(([t, o])=>{
+          const med = o.diffs.length ? median(o.diffs).toFixed(1) : '—';
+          return `<tr><td>${esc(t)}</td><td>${med}</td><td>${o.n}</td></tr>`;
+        }).join('') || `<tr><td colspan="3" class="center muted">No permit rows in the selected window.</td></tr>`;
+
+      // CONTRACTORS (count-only; drop money aggregates to avoid API 400s)
+      const ctrMap = new Map(); // contractor => {n, sum, avg}
+      for(const r of rows30){
+        const name = (r[C.f.contractor] || '').toString().trim();
+        if(!name) continue;
+        let o = ctrMap.get(name);
+        if(!o){ o = { n:0, sum:0 }; ctrMap.set(name,o); }
+        o.n++;
+        const v = Number(r[C.f.value]);
+        if(isFinite(v)) o.sum += v;
+      }
+      const ctrRows = [...ctrMap.entries()]
+        .sort((a,b)=>b[1].n - a[1].n)
+        .slice(0,50)
+        .map(([name,o])=>{
+          const avg = o.n ? (o.sum/o.n) : 0;
+          return `<tr>
+            <td><a href="#c=${encodeURIComponent(name)}">${esc(name)}</a></td>
+            <td>${o.n}</td>
+            <td>${money(o.sum)}</td>
+            <td>${money(avg)}</td>
+          </tr>`;
+        }).join('') || `<tr><td colspan="4" class="center muted">No contractor activity in the selected window.</td></tr>`;
+      document.getElementById('contractors').innerHTML = ctrRows;
+
+      // RECENT (7 days subset of rows30)
+      const recent = rows30
+        .filter(r => r[C.f.issued] >= `${start7}T00:00:00`)
+        .sort((a,b) => (a[C.f.issued] > b[C.f.issued] ? -1 : 1))
+        .slice(0,500);
+
+      const tbody = document.getElementById('recent');
+      const renderRecent = (rows) => {
+        tbody.innerHTML = rows.map(r=>{
+          const val = Number(r[C.f.value]);
+          return `<tr>
+            <td>${fmtDate(r[C.f.issued])}</td>
+            <td>${esc(r[C.f.type] || '—')}</td>
+            <td>${esc(r[C.f.address] || '—')}</td>
+            <td>${money(val)}</td>
+            <td>${esc(r[C.f.contractor] || '—')}</td>
+            <td>${esc((r[C.f.desc] || '').slice(0, 200))}</td>
+          </tr>`;
+        }).join('') || `<tr><td colspan="6" class="center muted">No permits in the last 7 days.</td></tr>`;
       };
+      renderRecent(recent);
 
-      // --- KPIs ---
-      try{
-        const last7 = await soql({ $select: 'count(1) as c', $where: `${c.issued} >= '${start7}'`, $limit: 1 });
-        document.getElementById('issued7').textContent = String(last7?.[0]?.c ?? '0');
-
-        const today = await soql({ $select: 'count(1) as c', $where: `${c.issued} >= '${dayStart}' AND ${c.issued} < '${nextDayStart}'`, $limit: 1 });
-        document.getElementById('today').textContent = String(today?.[0]?.c ?? '0');
-      }catch(e){
-        addErr(`KPIs: ${e.message || e}`);
-      }
-
-      // --- by type (counts) ---
-      try{
-        const byType = await soql({
-          $select: `${c.type} as type, count(1) as n`,
-          $where: `${c.issued} >= '${start30}'`,
-          $group: 'type',
-          $order: 'n DESC',
-          $limit: 1000
+      // filter box for recent + contractor hash
+      const input = document.getElementById('filter');
+      function applyFilter(){
+        const q = input.value.toLowerCase();
+        const out = recent.filter(r=>{
+          const hay = [
+            r[C.f.type], r[C.f.address], r[C.f.contractor], r[C.f.desc]
+          ].join(' ').toLowerCase();
+          return hay.includes(q);
         });
-        const tb = document.getElementById('types');
-        tb.innerHTML = byType.length
-          ? byType.map(r => `
-              <tr>
-                <td>${esc(r.type || 'Other')}</td>
-                <td class="t-center">—</td>
-                <td class="t-center">${r.n ?? 0}</td>
-              </tr>
-            `).join('')
-          : `<tr><td colspan="3">No permit rows in the selected window.</td></tr>`;
-      }catch(e){
-        addErr(`Types: ${e.message || e}`);
+        renderRecent(out);
+        history.replaceState(null,'', q ? `#q=${encodeURIComponent(q)}` : ' ');
+      }
+      input.addEventListener('input', applyFilter);
+
+      // click contractor quick-filter via hash
+      if(location.hash.startsWith('#c=')){
+        const c = decodeURIComponent(location.hash.slice(3));
+        input.value = c;
+        applyFilter();
+      }else if(location.hash.startsWith('#q=')){
+        const q = decodeURIComponent(location.hash.slice(3));
+        input.value = q;
+        applyFilter();
       }
 
-      // --- contractors (last 30 days) ---
-      try{
-       const ctr = await soql({
-  $select: `${c.contractor} as contractor, count(1) as n, sum(to_number(${c.value})) as s, avg(to_number(${c.value})) as a`,
-  $where: `${c.issued} >= '${start30}' AND ${c.contractor} IS NOT NULL AND ${c.contractor} <> ''`,
-  $group: 'contractor',
-  $order: 's DESC',
-  $limit: 1000
-});
+      // CSV export for recent
+      document.getElementById('download').addEventListener('click', ()=>{
+        const rows = [...tbody.querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.textContent));
+        if(!rows.length || rows[0].length < 6){ alert('Nothing to export yet.'); return; }
+        const header = ['Issued','Type','Address','Value','Contractor','Description'];
+        const csv = [header, ...rows].map(r =>
+          r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')
+        ).join('\n');
+        const blob = new Blob([csv], {type:'text/csv'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'austin-recent-permits.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
 
-        const tb = document.getElementById('contractors');
-        tb.innerHTML = ctr.length
-          ? ctr.map(r => `
-              <tr>
-                <td>${esc(r.contractor || '—')}</td>
-                <td class="t-center">${r.n ?? 0}</td>
-                <td class="t-center">${money(r.s)}</td>
-                <td class="t-center">${money(r.a)}</td>
-              </tr>
-            `).join('')
-          : `<tr><td colspan="4">No contractor activity in the selected window.</td></tr>`;
-      }catch(e){
-        addErr(`Contractors: ${e.message || e}`);
-      }
-
-      // --- recent (last 7 days) ---
-      let shown = [];
-      try{
-        const recent = await soql({
-  $select: `${c.issued} as issued, ${c.type} as type, ${c.address} as address, ${c.value} as value, ${c.contractor} as contractor, ${c.desc1} as work_description, ${c.desc2} as description`,
-  $where: `${c.issued} >= '${start7}'`,
-  $order: `${c.issued} DESC`,
-  $limit: 3000
-});
-
-        shown = (recent || []).map(r => ({
-          issued: r.issued,
-          type: r.type || 'Other',
-          address: r.address || '',
-          value: r.value || '',
-          contractor: r.contractor || '',
-          desc: r[c.desc1] || r[c.desc2] || ''
-        }));
-        const tbody = document.getElementById('recent');
-        const render = (rows) => {
-          tbody.innerHTML = rows.length
-            ? rows.map(r => `
-                <tr>
-                  <td>${fmtDate(r.issued)}</td>
-                  <td>${esc(r.type)}</td>
-                  <td>${esc(r.address)}</td>
-                  <td class="t-center">${money(r.value)}</td>
-                  <td>${esc(r.contractor)}</td>
-                  <td>${esc(String(r.desc).slice(0,160))}</td>
-                </tr>
-              `).join('')
-            : `<tr><td colspan="6">No permits in the last 7 days.</td></tr>`;
-        };
-        render(shown);
-
-        // filter
-        document.getElementById('filter').addEventListener('input', e=>{
-          const q = e.target.value.toLowerCase();
-          const rows = shown.filter(r =>
-            [r.type, r.address, r.contractor, r.desc].some(v => String(v).toLowerCase().includes(q))
-          );
-          render(rows);
-        });
-
-        // CSV
-        document.getElementById('download').addEventListener('click', ()=>{
-          const header = ['issued','type','address','value','contractor','description'];
-          const csv = [header.join(',')].concat(
-            shown.map(r => [
-              fmtDate(r.issued),
-              `"${String(r.type).replace(/"/g,'""')}"`,
-              `"${String(r.address).replace(/"/g,'""')}"`,
-              `"${String(r.value).replace(/"/g,'""')}"`,
-              `"${String(r.contractor).replace(/"/g,'""')}"`,
-              `"${String(r.desc).replace(/"/g,'""')}"`,
-            ].join(','))
-          ).join('\n');
-          const blob = new Blob([csv], {type:'text/csv'});
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = 'austin-recent-permits.csv';
-          a.click();
-          URL.revokeObjectURL(a.href);
-        });
-
-      }catch(e){
-        addErr(`Recent: ${e.message || e}`);
-      }
-
-      // median: Austin dataset lacks application date → keep N/A (already shown)
-      document.getElementById('median').textContent = 'N/A';
-      document.getElementById('median-note').textContent = 'This dataset lacks application dates; showing activity only.';
-    })().catch(e=>{
-      const err = document.getElementById('errbox');
-      err.style.display='';
-      err.textContent = String(e?.message || e);
+    })().catch(err=>{
+      // surface any fetch errors in-page (top notice)
+      const k = document.querySelector('.kpis');
+      const div = document.createElement('div');
+      div.className = 'card';
+      div.style.gridColumn = '1 / -1';
+      div.innerHTML = `<div class="warn">Error: ${esc(err.message)}</div>`;
+      k.parentNode.insertBefore(div, k);
+      console.error(err);
     });
+
+  })();
   </script>
 </body>
 </html>
