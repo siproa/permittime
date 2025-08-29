@@ -101,210 +101,203 @@
     Data is provided as-is from municipal open-data portals. Always check the official city site for definitive status.
   </footer>
 
-  <script>
-    // Visible proof this file executed
-    (function(){ var bs=document.getElementById('build-stamp'); if(bs){ bs.textContent='build '+new Date().toLocaleString(); } })();
+<script>
+  // ---------- helpers ----------
+  const esc = s => String(s ?? '').replace(/[&<>"/'`]/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]));
+  const money = n => isFinite(+n) ? (+n).toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}) : '';
+  const fmtDate = d => new Date(d).toISOString().slice(0,10);
+  const isoDay = (offsetDays=0) => fmtDate(new Date(Date.now() + offsetDays*86400000));
+  const buildStamp = () => (document.getElementById('build-stamp')||{}).textContent =
+      'build ' + new Date().toLocaleString();
 
-    // Global error trap → print stack on the page
-    window.onerror = function(m, s, l, c, e){
-      var box = document.getElementById('errbox');
-      box.textContent = 'BOOT ERROR: ' + m + '\n' + (e && e.stack ? e.stack : (s+':'+l));
-      box.style.display = 'block';
-    };
+  // ---------- city config (Austin) ----------
+  const C = {
+    name:'Austin, TX',
+    portal:'https://data.austintexas.gov/resource/',
+    dataset:'3syk-w9eu.json',
+    f:{ issued:'issue_date', applied:'applieddate', type:'permit_type_desc', address:'permit_location' }
+  };
 
-    (function(){
-      // helpers
-      function esc(s){ s = (s==null?'':String(s)); return s.replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;'}[c];}); }
-      function money(n){ var x = Number(String(n).replace(/[^0-9.-]/g,'')); return isFinite(x)? x.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}) : ''; }
-      function median(a){ if(!a || !a.length) return null; var b=a.slice().sort(function(x,y){return x-y}); return b[Math.floor(b.length/2)]; }
-      function fmtDate(d){ return (d instanceof Date && !isNaN(d)) ? d.toISOString().slice(0,10) : ''; }
+  // ---------- tiny SOQL fetch via our proxy ----------
+  async function soql(params){
+    const p = new URLSearchParams(params);
+    const url = `/api/soql?portal=${encodeURIComponent(C.portal)}&dataset=${encodeURIComponent(C.dataset)}&${p}`;
+    const r = await fetch(url, { headers:{'Accept':'application/json'} });
+    const t = await r.text();
+    let j=null; try{ j=JSON.parse(t); }catch{}
+    if (!r.ok || !Array.isArray(j)) throw new Error(`SOQL ${r.status}: ${t.slice(0,180)}`);
+    return j;
+  }
 
-     var C = {
-  name:'Austin, TX',
-  portal:'https://data.austintexas.gov/resource/',
-  dataset:'3syk-w9eu.json',
-  // correct field names from your raw row
-  f:{ issued:'issue_date', applied:'applieddate', type:'permit_type_desc', address:'permit_location' }
-};
+  // ---------- main ----------
+  (async function run(){
+    buildStamp();
 
+    // dates
+    const today    = isoDay(0);
+    const tomorrow = isoDay(1);
+    const start7   = isoDay(-7);
+    const start30  = isoDay(-30);
 
-      // Set immediate UI bits
-      document.title = 'PermitTime – ' + C.name;
-      var lu = document.getElementById('last-updated'); if(lu){ lu.textContent = new Date().toLocaleString(); }
-      var dl = document.getElementById('dataset-link'); if(dl){ dl.href = C.portal.replace('/resource/','/d/') + C.dataset.replace('.json',''); }
+    // set page title and dataset link
+    document.title = `PermitTime – ${C.name}`;
+    const ds = document.getElementById('dataset-link');
+    if (ds) ds.href = C.portal.replace(/\/?$/,'/') + C.dataset.replace('.json','');
 
-      // SOQL proxy
-      async function soql(p){
-        var q = new URLSearchParams({
-          portal: C.portal, dataset: C.dataset,
-          select: p.$select||'', where: p.$where||'', order: p.$order||'', group: p.$group||'', limit: p.$limit||20000
-        });
-        var r = await fetch('/api/soql?' + q.toString());
-        var t = await r.text(); var j=null; try{ j=JSON.parse(t); }catch(_){}
-        if(!r.ok || !Array.isArray(j)) throw new Error((j && j.message) || ('Fetch failed '+r.status+': '+t.slice(0,160)));
-        return j;
+    // 1) KPIs
+    try {
+      const k7 = await soql({
+        "$select":"count(1) as c",
+        "$where": `${C.f.issued} >= '${start7}T00:00:00'`,
+        "$limit": 1
+      });
+      const ktoday = await soql({
+        "$select":"count(1) as c",
+        "$where": `${C.f.issued} >= '${today}T00:00:00' AND ${C.f.issued} < '${tomorrow}T00:00:00'`,
+        "$limit": 1
+      });
+      document.getElementById('issued7')?.querySelector('h2').textContent = k7[0]?.c ?? '0';
+      document.getElementById('today')?.querySelector('h2').textContent   = ktoday[0]?.c ?? '0';
+    } catch(e) {
+      console.error('KPI error:', e);
+    }
+
+    // 2) Pull last 30 days rows once
+    let rows30 = [];
+    try {
+      rows30 = await soql({
+        "$select": [
+          C.f.applied, C.f.issued, C.f.type, C.f.address,
+          "contractor","value","work_description","description"
+        ].filter(Boolean).join(', '),
+        "$where": `${C.f.issued} >= '${start30}T00:00:00'`,
+        "$order": `${C.f.issued} DESC`,
+        "$limit": 50000
+      });
+    } catch(e) {
+      console.error('rows30 error:', e);
+    }
+
+    // 3) Median
+    try {
+      if (C.f.applied) {
+        const diffs = rows30.map(r => {
+          const a = new Date(r[C.f.applied]);
+          const i = new Date(r[C.f.issued]);
+          const d = (i - a)/86400000;
+          return isFinite(d) && d >= 0 ? d : null;
+        }).filter(x => x!=null).sort((a,b)=>a-b);
+        const med = diffs.length ? diffs[Math.floor(diffs.length/2)].toFixed(1) : '—';
+        document.querySelector('#median h2').textContent = diffs.length ? med : '—';
+      } else {
+        document.querySelector('#median h2').textContent = 'N/A';
+        document.getElementById('median-note')?.classList.remove('hidden');
+      }
+    } catch(e) {
+      console.error('median error:', e);
+    }
+
+    // 4) By type (counts + median where possible)
+    try {
+      const groups = {};
+      for (const r of rows30) {
+        const t = r[C.f.type] || 'Other';
+        (groups[t] ||= []).push(r);
+      }
+      const out = Object.entries(groups).map(([t,arr])=>{
+        let med = '—';
+        if (C.f.applied) {
+          const ds = arr.map(r=>{
+            const a=new Date(r[C.f.applied]), i=new Date(r[C.f.issued]);
+            const d=(i-a)/86400000; return isFinite(d)&&d>=0?d:null;
+          }).filter(x=>x!=null).sort((a,b)=>a-b);
+          if (ds.length) med = ds[Math.floor(ds.length/2)].toFixed(1);
+        }
+        return { t, med, n: arr.length };
+      }).sort((a,b)=>b.n-a.n);
+      const tbody = document.getElementById('types');
+      if (tbody) tbody.innerHTML = out.map(r=>`<tr><td>${esc(r.t)}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join('');
+    } catch(e) {
+      console.error('types error:', e);
+    }
+
+    // 5) Top contractors
+    try {
+      const byCtr = {};
+      for (const r of rows30) {
+        const name = String(r.contractor||'').trim();
+        if (!name) continue;
+        byCtr[name] = byCtr[name] || { n:0, sum:0, avg:0 };
+        byCtr[name].n++;
+        const val = +r.value;
+        if (isFinite(val)) byCtr[name].sum += val;
+      }
+      for (const k in byCtr) byCtr[k].avg = byCtr[k].n ? byCtr[k].sum/byCtr[k].n : 0;
+      const top = Object.entries(byCtr).sort((a,b)=>b[1].n-a[1].n).slice(0,25);
+      const body = document.getElementById('contractors');
+      if (body) body.innerHTML = top.map(([name,s]) =>
+        `<tr><td>${esc(name)}</td><td>${s.n}</td><td>${money(s.sum)}</td><td>${money(s.avg)}</td></tr>`).join('')
+        || `<tr><td colspan="4">No contractor activity in the selected window.</td></tr>`;
+    } catch(e) {
+      console.error('contractors error:', e);
+    }
+
+    // 6) Recent (last 7 days)
+    try {
+      const recent = rows30.filter(r => new Date(r[C.f.issued]) >= new Date(start7+'T00:00:00'))
+        .map(r=>({
+          issued: r[C.f.issued],
+          type:   r[C.f.type] || 'Other',
+          address: r[C.f.address] || '',
+          value:   money(r.value),
+          contractor: r.contractor || '',
+          desc: r.work_description || r.description || ''
+        }))
+        .sort((a,b)=> new Date(b.issued) - new Date(a.issued));
+
+      const tbody = document.getElementById('recent');
+      if (tbody) {
+        tbody.innerHTML = recent.length
+          ? recent.map(r=>`<tr>
+              <td>${fmtDate(r.issued)}</td>
+              <td>${esc(r.type)}</td>
+              <td>${esc(r.address)}</td>
+              <td>${esc(r.value)}</td>
+              <td>${esc(r.contractor)}</td>
+              <td>${esc(String(r.desc).slice(0,120))}</td>
+            </tr>`).join('')
+          : `<tr><td colspan="6">No permits in the last 7 days.</td></tr>`;
       }
 
-      (async function(){
-        var f = C.f;
-        var todayISO = new Date().toISOString().slice(0,10);
-        var w30 = f.issued + " >= dateadd('day',-30, now())";
-        var w90 = f.issued + " >= dateadd('day',-90, now())";
-        var w7  = f.issued + " >= dateadd('day',-7, now())";
-        var wT  = f.issued + " >= '" + todayISO + "T00:00:00' AND " + f.issued + " < dateadd('day',1,'" + todayISO + "T00:00:00')";
-        var fields = [f.issued,f.type,f.applied,f.address,'contractor','value','work_description','description'].filter(Boolean).join(', ');
+      // filter + CSV
+      document.getElementById('filter')?.addEventListener('input', e=>{
+        const q = e.target.value.toLowerCase();
+        const shown = recent.filter(r =>
+          [r.type,r.address,r.contractor,r.desc].some(v=>String(v).toLowerCase().includes(q)));
+        tbody.innerHTML = shown.map(r=>`<tr>
+          <td>${fmtDate(r.issued)}</td>
+          <td>${esc(r.type)}</td>
+          <td>${esc(r.address)}</td>
+          <td>${esc(r.value)}</td>
+          <td>${esc(r.contractor)}</td>
+          <td>${esc(String(r.desc).slice(0,120))}</td>
+        </tr>`).join('') || `<tr><td colspan="6">No matching rows.</td></tr>`;
+      });
 
-        // fetch + fallback
-        var rows30 = await soql({ $select: fields, $where: w30, $order: f.issued + ' DESC', $limit: 50000 });
-        if(!rows30 || rows30.length===0){
-          rows30 = await soql({ $select: fields, $where: w90, $order: f.issued + ' DESC', $limit: 50000 });
-          var fb = document.getElementById('fallback-badge'); if(fb) fb.style.display='inline-block';
-          var ids = ['window-label-1','window-label-2','window-label-3']; for(var i=0;i<ids.length;i++){ var el=document.getElementById(ids[i]); if(el) el.textContent='90'; }
-        }
+      document.getElementById('download')?.addEventListener('click', ()=>{
+        const rows = recent.map(r=>[fmtDate(r.issued), r.type, r.address, r.value, r.contractor, r.desc.replace(/[\r\n,]+/g,' ')]);
+        const csv = [['Issued','Type','Address','Value','Contractor','Description']]
+          .concat(rows).map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\n');
+        const blob = new Blob([csv],{type:'text/csv'}), a=document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = 'austin-recent-permits.csv'; a.click();
+        URL.revokeObjectURL(a.href);
+      });
+    } catch(e) {
+      console.error('recent error:', e);
+    }
+  })();
+</script>
 
-        // KPIs
-        var last7 = await soql({ $select:'count(1) as c', $where:w7, $limit:1 });
-        var today = await soql({ $select:'count(1) as c', $where:wT, $limit:1 });
-        var l7 = (last7 && last7[0] && last7[0].c) ? +last7[0].c : 0;
-        var td = (today && today[0] && today[0].c) ? +today[0].c : 0;
-        var issued7El = document.getElementById('issued7'); if(issued7El) issued7El.textContent = String(l7);
-        var todayEl   = document.getElementById('today');   if(todayEl)   todayEl.textContent   = String(td);
-
-        // median
-        if(f.applied){
-          var diffs = [];
-          for(var i1=0;i1<rows30.length;i1++){
-            var r1 = rows30[i1];
-            var a = r1[f.applied], i2 = r1[f.issued];
-            var da = a ? new Date(a) : NaN;
-            var di = i2 ? new Date(i2) : NaN;
-            var d = (di - da)/86400000;
-            if(isFinite(d) && d>=0) diffs.push(d);
-          }
-          var m = diffs.length ? median(diffs) : null;
-          var medEl = document.getElementById('median'); if(medEl) medEl.textContent = (m!=null ? m.toFixed(1) : '—');
-          var th = document.getElementById('type-metric-h'); if(th) th.textContent='Median days';
-          var mn = document.getElementById('median-note'); if(mn) mn.textContent='';
-        } else {
-          var medEl2 = document.getElementById('median'); if(medEl2) medEl2.textContent='N/A';
-          var th2 = document.getElementById('type-metric-h'); if(th2) th2.textContent='—';
-          var mn2 = document.getElementById('median-note'); if(mn2) mn2.textContent='This dataset lacks application dates; showing activity and leaderboards only.';
-        }
-
-        // by type (fixed grouping)
-        var byType = {};
-        for(var i3=0;i3<rows30.length;i3++){
-          var r2=rows30[i3]; var tName = r2[f.type] || 'Other';
-          if(!byType[tName]) byType[tName]=[];
-          byType[tName].push(r2);
-        }
-        var typeRows = [];
-        var keys = Object.keys(byType);
-        for(var k=0;k<keys.length;k++){
-          var key = keys[k], arr = byType[key];
-          var med = '—';
-          if(f.applied){
-            var d2=[], r; for(var j=0;j<arr.length;j++){ r=arr[j]; var aa=r[f.applied], ii=r[f.issued]; var daa=aa?new Date(aa):NaN; var dii=ii?new Date(ii):NaN; var dv=(dii-daa)/86400000; if(isFinite(dv)&&dv>=0) d2.push(dv); }
-            var mm = d2.length ? median(d2) : null; med = (mm!=null ? mm.toFixed(1) : '—');
-          }
-          typeRows.push({t:key, med:med, n:arr.length});
-        }
-        typeRows.sort(function(a,b){ return b.n - a.n; });
-        typeRows = typeRows.slice(0,16);
-        var typesEl = document.getElementById('types');
-        if(typesEl){
-          typesEl.innerHTML = typeRows.length
-            ? typeRows.map(function(r){ return '<tr><td>'+esc(r.t)+'</td><td>'+r.med+'</td><td>'+r.n+'</td></tr>'; }).join('')
-            : '<tr><td colspan="3">No permit rows in the selected window.</td></tr>';
-        }
-
-        // contractors (avoid nullish assignment)
-        var byCtr = {};
-        for(var c=0;c<rows30.length;c++){
-          var rr = rows30[c];
-          var name = (rr.contractor||'').toString().trim() || '(Unspecified)';
-          var val = Number(String(rr.value).replace(/[^0-9.-]/g,''));
-          if(!byCtr[name]) byCtr[name] = { n:0, sum:0 };
-          byCtr[name].n++;
-          if(isFinite(val)) byCtr[name].sum += val;
-        }
-        var ctrList = [];
-        var ck = Object.keys(byCtr);
-        for(var q=0;q<ck.length;q++){
-          if(ck[q]==='(Unspecified)') continue;
-          var s = byCtr[ck[q]];
-          ctrList.push({name:ck[q], n:s.n, sum:s.sum, avg:s.n? s.sum/s.n : 0});
-        }
-        ctrList.sort(function(a,b){ return (b.n-a.n) || (b.sum-a.sum); });
-        ctrList = ctrList.slice(0,25);
-        var ctrEl = document.getElementById('contractors');
-        if(ctrEl){
-          ctrEl.innerHTML = ctrList.length
-            ? ctrList.map(function(r){ return '<tr><td>'+esc(r.name)+'</td><td>'+r.n+'</td><td>'+money(r.sum)+'</td><td>'+money(r.avg)+'</td></tr>'; }).join('')
-            : '<tr><td colspan="4">No contractor activity in the selected window.</td></tr>';
-        }
-
-        // recent 7d
-        var recent = await soql({ $select: fields, $where: w7, $order: f.issued+' DESC', $limit: 5000 });
-        var shown = recent.map(function(r){
-          return {
-            issued: r[f.issued]? new Date(r[f.issued]) : NaN,
-            type:   r[f.type]  || 'Other',
-            address:r[f.address] || '',
-            value:  r.value || '',
-            contractor: r.contractor || '',
-            desc:   r.work_description || r.description || ''
-          };
-        }).sort(function(a,b){ return b.issued - a.issued; });
-
-        var tbody = document.getElementById('recent');
-        var rc = document.getElementById('rowcount');
-        function render(){
-          if(rc) rc.textContent = shown.length ? (shown.length+' rows') : 'No permits in the last 7 days.';
-          if(!tbody) return;
-          tbody.innerHTML = shown.map(function(r){
-            return '<tr><td>'+fmtDate(r.issued)+'</td><td>'+esc(r.type)+'</td><td>'+esc(r.address)+'</td><td>'+money(r.value)+'</td><td>'+esc(r.contractor)+'</td><td>'+esc(String(r.desc).slice(0,140))+(String(r.desc).length>140?'…':'')+'</td></tr>';
-          }).join('');
-        }
-        render();
-
-        var filter = document.getElementById('filter');
-        if(filter){
-          filter.addEventListener('input', function(e){
-            var q = (e.target.value || '').toLowerCase();
-            shown = recent.filter(function(x){
-              var hay = [x[f.type], x[f.address], x.contractor, (x.work_description||x.description||'')];
-              for(var i=0;i<hay.length;i++){ if(String(hay[i]||'').toLowerCase().indexOf(q)>=0) return true; }
-              return false;
-            }).map(function(r){
-              return {
-                issued: r[f.issued]? new Date(r[f.issued]) : NaN,
-                type:   r[f.type]  || 'Other',
-                address:r[f.address] || '',
-                value:  r.value || '',
-                contractor: r.contractor || '',
-                desc:   r.work_description || r.description || ''
-              };
-            }).sort(function(a,b){ return b.issued - a.issued; });
-            render();
-          });
-        }
-
-        var dlbtn = document.getElementById('download');
-        if(dlbtn){
-          dlbtn.addEventListener('click', function(){
-            var rows = shown.map(function(r){
-              return [ fmtDate(r.issued), r.type, r.address.replace(/,/g,' '), String(r.value||''), r.contractor.replace(/,/g,' '), String(r.desc||'').replace(/\s+/g,' ').replace(/,/g,' ') ];
-            });
-            var csv = [['issued','type','address','value','contractor','description']].concat(rows).map(function(a){ return a.join(','); }).join('\n');
-            var blob = new Blob([csv],{type:'text/csv'});
-            var url = URL.createObjectURL(blob);
-            var a = document.createElement('a'); a.href=url; a.download='austin-recent-permits.csv'; a.click(); URL.revokeObjectURL(url);
-          });
-        }
-
-      })().catch(function(e){ window.onerror(e.message,'',0,0,e); });
-    })();
-  </script>
 </body>
 </html>
