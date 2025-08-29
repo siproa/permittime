@@ -1,4 +1,4 @@
-// api/soql.js  — Vercel serverless proxy for Socrata/ArcGIS-style queries
+// Vercel serverless proxy for Socrata queries (avoids CORS/rate limits)
 export default async function handler(req, res) {
   try {
     const { portal, dataset, select, where, limit } = req.query;
