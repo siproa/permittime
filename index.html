@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PermitTime – Live permit activity by city</title>
-  <meta name="description" content="Daily permit activity by city. Counts, medians (where available), and recent permits list with type, address, value, and contractor." />
+  <meta name="description" content="Daily permit activity by city. Counts, medians (where available), top contractors, and recent permits with type, address, value, and contractor." />
   <style>
     :root { --fg:#111; --muted:#666; --line:#e5e5e5; --bg:#fff; }
     html, body { height: 100%; }
@@ -29,6 +29,7 @@
     footer { color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding: 16px 20px; }
     .muted { color: var(--muted); }
     .nowrap { white-space: nowrap; }
+    .link { color:#0b62ff; cursor:pointer; text-decoration:underline; }
   </style>
 </head>
 <body>
@@ -66,6 +67,24 @@
       <tbody id="types"></tbody>
     </table>
 
+    <h3 style="margin-top:28px">Top contractors (last 30 days)</h3>
+    <div class="toolbar">
+      <span class="muted">Click a contractor to filter recent permits and get a shareable URL.</span>
+    </div>
+    <div style="max-height:360px; overflow:auto; border:1px solid var(--line); border-radius:12px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Contractor</th>
+            <th class="nowrap">Permits</th>
+            <th class="nowrap">Total value</th>
+            <th class="nowrap">Avg value</th>
+          </tr>
+        </thead>
+        <tbody id="contractors"></tbody>
+      </table>
+    </div>
+
     <h3 style="margin-top:28px">Recent permits (last 7 days)</h3>
     <div class="toolbar">
       <input id="filter" class="input" placeholder="Filter by type, address, contractor, description…" />
@@ -91,7 +110,7 @@
     <h3>Methodology</h3>
     <p>
       We compute the difference between <span class="pill">application date</span> and <span class="pill">issue date</span> for permits issued in the last 30 days.
-      Where application dates aren’t published, we show counts and recent permits but omit the median.
+      Where application dates aren’t published, we show counts, leaderboards and recent permits but omit the median.
     </p>
   </main>
 
@@ -102,16 +121,8 @@
   <script>
     // Cities. Austin is active; Dallas is stale but left in the list.
     const CITIES = {
-      austin: {
-        name: "Austin, TX",
-        portal: "https://data.austintexas.gov/resource/",
-        dataset: "3syk-w9eu.json"
-      },
-      dallas: {
-        name: "Dallas, TX",
-        portal: "https://www.dallasopendata.com/resource/",
-        dataset: "e7gq-4sah.json"
-      }
+      austin: { name: "Austin, TX", portal: "https://data.austintexas.gov/resource/", dataset: "3syk-w9eu.json" },
+      dallas: { name: "Dallas, TX", portal: "https://www.dallasopendata.com/resource/", dataset: "e7gq-4sah.json" }
     };
 
     function getCitySlug(){
@@ -119,7 +130,6 @@
       const qp = new URLSearchParams(location.search).get("city");
       return (path && CITIES[path]) ? path : (qp && CITIES[qp]) ? qp : "austin";
     }
-
     function buildCityPicker(){
       const sel = document.getElementById('city');
       sel.innerHTML = Object.entries(CITIES).map(([slug,c]) => `<option value="${slug}">${c.name}</option>`).join('');
@@ -143,7 +153,6 @@
       return json;
     }
 
-    // Find field names from a sample row (every city names columns differently, because chaos)
     async function detectFields(cfg){
       const sample = await soql(cfg.portal, cfg.dataset, { "$limit": 1 });
       const keys = Object.keys(sample[0] || {});
@@ -151,11 +160,9 @@
       const find = list => list.find(has);
 
       return {
-        // core
         issued:  find(["issued_date","issue_date","date_issued","issueddate","issue_dt","issued"]),
         applied: find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt","applicationdate"]),
         type:    find(["permit_type","work_type","permitclass","permit_class","classdesc","class_desc","description","type","category","permit_description","work_description"]),
-        // details for table
         address: find(["street_address","address","address_full","site_address","property_address","location","streetaddress"]),
         contractor: find(["contractor","contractor_name","applicant","builder","licensee","company_name","business_name"]),
         value:   find(["value","job_value","project_value","valuation","totaljobvalue","estimated_value","estimated_cost"]),
@@ -163,6 +170,7 @@
       };
     }
 
+    const dayMs = 86400000;
     function parseDate(v){
       if(!v) return NaN;
       const d = new Date(v);
@@ -171,14 +179,9 @@
       if(m){ let y = +m[3]; if(y<100) y += 2000; return new Date(y, +m[1]-1, +m[2]); }
       return new Date(NaN);
     }
-    const dayMs = 86400000;
     const fmtDate = d => d instanceof Date ? d.toISOString().slice(0,10) : "";
-
     const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;'}[c]));
-    const money = n => {
-      const x = Number(String(n).replace(/[^0-9.-]/g,""));
-      return isFinite(x) ? x.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0}) : "";
-    };
+    const money = n => { const x = Number(String(n).replace(/[^0-9.-]/g,"")); return isFinite(x) ? x.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0}) : ""; };
     const median = a => { if(!a.length) return null; const b=[...a].sort((x,y)=>x-y); return b[Math.floor(b.length/2)]; };
 
     async function load(){
@@ -190,35 +193,32 @@
       // dataset link
       const datasetId = cfg.dataset.replace(".json","");
       const ds = cfg.portal.replace("/resource/","/d/") + datasetId;
-      const dsLink = document.getElementById("dataset-link");
-      dsLink.href = ds;
+      document.getElementById("dataset-link").href = ds;
 
-      // detect fields
       const f = await detectFields(cfg);
-      if(!f.issued){ throw new Error("Dataset missing issued date field"); }
+      if(!f.issued) throw new Error("Dataset missing issued date field");
 
-      // fetch lots of recent rows ordered by issued desc
+      // fetch recent rows ordered by issued desc
       const fieldsWanted = [f.issued,f.type,f.applied,f.address,f.contractor,f.value,f.desc].filter(Boolean).join(", ");
       const rows = await soql(cfg.portal, cfg.dataset, { "$select": fieldsWanted, "$order": `${f.issued} DESC`, "$limit": 20000 });
 
-      // normalize
       const now = new Date();
-      const last30 = [];
-      const last7  = [];
+      const last30 = [], last7 = [];
       for(const r of rows){
         const di = parseDate(r[f.issued]);
         if(!isFinite(di)) continue;
-        const obj = {
+        const entry = {
           issued: di,
           applied: f.applied ? parseDate(r[f.applied]) : NaN,
           type: (f.type && r[f.type]) || "Other",
           address: f.address ? r[f.address] : "",
-          contractor: f.contractor ? r[f.contractor] : "",
+          contractor: f.contractor ? String(r[f.contractor]).trim() : "",
           value: f.value ? r[f.value] : "",
           desc: f.desc ? r[f.desc] : ""
         };
-        if((now - di) >= 0 && (now - di)/dayMs <= 30) last30.push(obj);
-        if((now - di) >= 0 && (now - di)/dayMs <= 7)  last7.push(obj);
+        const days = (now - di)/dayMs;
+        if(days >= 0 && days <= 30) last30.push(entry);
+        if(days >= 0 && days <= 7)  last7.push(entry);
       }
 
       // KPIs
@@ -226,7 +226,7 @@
       const todayISO = now.toISOString().slice(0,10);
       document.getElementById("today").textContent = String(last7.filter(x => fmtDate(x.issued) === todayISO).length);
 
-      // Median if we have application dates
+      // Median if possible
       if(f.applied){
         const diffs = last30.map(x => (x.issued - x.applied)/dayMs).filter(x => isFinite(x) && x >= 0);
         const m = median(diffs);
@@ -236,7 +236,7 @@
       } else {
         document.getElementById("median").textContent = "N/A";
         document.getElementById("type-metric-h").textContent = "—";
-        document.getElementById("median-note").textContent = "This dataset lacks application dates; showing activity only.";
+        document.getElementById("median-note").textContent = "This dataset lacks application dates; showing activity and leaderboards only.";
       }
 
       // By type (30 days)
@@ -254,7 +254,39 @@
         ? typeRows.map(r=>`<tr><td>${esc(r.t)}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join("")
         : `<tr><td colspan="3">No permit rows in the last 30 days.</td></tr>`;
 
-      // Recent permits table (7 days) with filter + CSV
+      // Top contractors (30 days)
+      const byCtr = {};
+      for(const x of last30){
+        const key = x.contractor || "(Unspecified)";
+        const val = Number(String(x.value).replace(/[^0-9.-]/g,""));
+        if(!byCtr[key]) byCtr[key] = { n:0, sum:0 };
+        byCtr[key].n += 1;
+        if(isFinite(val)) byCtr[key].sum += val;
+      }
+      const ctrRows = Object.entries(byCtr)
+        .filter(([name]) => name && name !== "(Unspecified)")
+        .map(([name,stats]) => ({ name, n: stats.n, sum: stats.sum, avg: stats.n ? stats.sum/stats.n : 0 }))
+        .sort((a,b)=> b.n - a.n || b.sum - a.sum)
+        .slice(0, 25);
+
+      const ctrTbody = document.getElementById("contractors");
+      const setContractorParam = (name) => {
+        const url = new URL(location.href);
+        url.searchParams.set("contractor", name);
+        history.replaceState({}, "", url.toString());
+      };
+      ctrTbody.innerHTML = ctrRows.length
+        ? ctrRows.map(r => `
+            <tr>
+              <td><span class="link" data-ctr="${esc(r.name)}">${esc(r.name)}</span></td>
+              <td class="nowrap">${r.n}</td>
+              <td class="nowrap">${money(r.sum)}</td>
+              <td class="nowrap">${money(r.avg)}</td>
+            </tr>
+          `).join("")
+        : `<tr><td colspan="4">No contractor activity in the last 30 days.</td></tr>`;
+
+      // Recent permits (7 days) + filter + CSV + contractor deep-link
       let shown = [...last7].sort((a,b)=>b.issued - a.issued);
       const tbody = document.getElementById("recent");
       const counter = document.getElementById("rowcount");
@@ -271,17 +303,41 @@
           </tr>
         `).join("");
       };
-      render();
 
-      document.getElementById("filter").addEventListener("input", e=>{
-        const q = e.target.value.toLowerCase().trim();
-        if(!q){ shown = [...last7].sort((a,b)=>b.issued - a.issued); render(); return; }
+      const applyFilter = (q) => {
+        const needle = q.toLowerCase();
         shown = last7.filter(r =>
-          [r.type, r.address, r.contractor, r.desc].some(v => String(v||"").toLowerCase().includes(q))
+          [r.type, r.address, r.contractor, r.desc].some(v => String(v||"").toLowerCase().includes(needle))
         ).sort((a,b)=>b.issued - a.issued);
         render();
+      };
+
+      // wire search box
+      const filterBox = document.getElementById("filter");
+      filterBox.addEventListener("input", e => applyFilter(e.target.value));
+
+      // wire contractor click -> filter + URL param
+      ctrTbody.querySelectorAll("[data-ctr]").forEach(el => {
+        el.addEventListener("click", () => {
+          const name = el.getAttribute("data-ctr");
+          filterBox.value = name;
+          setContractorParam(name);
+          applyFilter(name);
+          // Scroll to recent table
+          document.getElementById("recent").closest("div").scrollIntoView({ behavior: "smooth", block: "start" });
+        });
       });
 
+      // deep-link: ?contractor=...
+      const initCtr = new URLSearchParams(location.search).get("contractor");
+      if(initCtr){
+        filterBox.value = initCtr;
+        applyFilter(initCtr);
+      } else {
+        render();
+      }
+
+      // CSV download
       document.getElementById("download").onclick = ()=>{
         const rows = shown.map(r=>[
           fmtDate(r.issued),
@@ -308,6 +364,7 @@
       document.getElementById('issued7').textContent = '—';
       document.getElementById('today').textContent  = '—';
       document.getElementById('types').innerHTML = `<tr><td colspan="3">Could not load data. Try again later.</td></tr>`;
+      document.getElementById('contractors').innerHTML = `<tr><td colspan="4">Could not load data. Try again later.</td></tr>`;
       document.getElementById('recent').innerHTML = `<tr><td colspan="6">Could not load data. Try again later.</td></tr>`;
     });
   </script>
