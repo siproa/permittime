@@ -68,20 +68,26 @@
   </footer>
 
   <script>
-    // City configs. We’ll auto-detect actual field names from a sample row.
+    // Cities. Austin = live feed; Dallas stays for later fixing.
     const CITIES = {
+      austin: {
+        name: "Austin, TX",
+        portal: "https://data.austintexas.gov/resource/",
+        dataset: "3syk-w9eu.json", // Issued Construction Permits
+        fields: { applied: null, issued: null, type: null } // let auto-detect pick correct keys
+      },
       dallas: {
         name: "Dallas, TX",
         portal: "https://www.dallasopendata.com/resource/",
         dataset: "e7gq-4sah.json",
-        fields: { applied: null, issued: "issued_date", type: "permit_type" } // Dallas has issued_date; app date often missing
+        fields: { applied: null, issued: "issued_date", type: "permit_type" }
       }
     };
 
     function getCitySlug(){
       const path = location.pathname.replace(/^\/+/, "").split("/")[0];
       const qp = new URLSearchParams(location.search).get("city");
-      return (path && CITIES[path]) ? path : (qp && CITIES[qp]) ? qp : "dallas";
+      return (path && CITIES[path]) ? path : (qp && CITIES[qp]) ? qp : "austin";
     }
 
     function buildCityPicker(){
@@ -97,28 +103,27 @@
       if (params["$select"]) clean.select = params["$select"];
       if (params["$where"])  clean.where  = params["$where"];
       if (params["$order"])  clean.order  = params["$order"];
-      clean.limit = params["$limit"] || 20000; // cap for sanity
+      clean.limit = params["$limit"] || 20000;
       const q = new URLSearchParams({ portal, dataset, ...clean });
       const r = await fetch(`/api/soql?${q.toString()}`);
       const text = await r.text();
       let json = null;
-      try { json = JSON.parse(text); } catch { /* fall through */ }
-      if(!r.ok || !Array.isArray(json)) {
-        throw new Error(json?.message || `Fetch failed (${r.status})`);
-      }
+      try { json = JSON.parse(text); } catch {}
+      if(!r.ok || !Array.isArray(json)) throw new Error(json?.message || `Fetch failed (${r.status})`);
       return json;
     }
 
-    // Auto-detect field names from a sample row (cities rename for sport)
     async function detectFields(cfg){
       const sample = await soql(cfg.portal, cfg.dataset, { "$limit": 1 });
       const keys = Object.keys(sample[0] || {});
-      const find = list => list.find(k => keys.includes(k));
-      const applied = cfg.fields.applied || find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt"]);
-      const issued  = cfg.fields.issued  && keys.includes(cfg.fields.issued) ? cfg.fields.issued
-                      : find(["issued_date","issue_date","date_issued","issueddate","issue_dt"]);
-      const type    = cfg.fields.type    && keys.includes(cfg.fields.type)   ? cfg.fields.type
-                      : find(["permit_type","work_type","permitclass","permit_class","permit_description","work_description"]);
+      const has = k => keys.includes(k);
+      const find = list => list.find(has);
+      const applied = cfg.fields.applied && has(cfg.fields.applied) ? cfg.fields.applied
+        : find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt","applicationdate"]);
+      const issued  = cfg.fields.issued && has(cfg.fields.issued) ? cfg.fields.issued
+        : find(["issued_date","issue_date","date_issued","issueddate","issue_dt"]);
+      const type    = cfg.fields.type && has(cfg.fields.type) ? cfg.fields.type
+        : find(["permit_type","work_type","permitclass","permit_class","permit_description","work_description","description"]);
       return { applied, issued, type };
     }
 
@@ -146,13 +151,12 @@
       document.title = `PermitTime – ${cfg.name}`;
       const medianNote = document.getElementById("median-note");
 
-      // Resolve fields
       const f = await detectFields(cfg);
       if(!f.issued){
         throw new Error("Dataset missing issued date field");
       }
 
-      // Pull a large recent slice, ordered by issued date (string sort is fine for MM/DD/YY)
+      // Pull and compute locally; a lot of portals store dates as text.
       const fieldsWanted = [f.issued, f.type, f.applied].filter(Boolean).join(", ");
       const rows = await soql(cfg.portal, cfg.dataset, {
         "$select": fieldsWanted,
@@ -160,7 +164,6 @@
         "$limit":  20000
       });
 
-      // Normalize and keep only last 30 days by issued date
       const now = new Date(), dayMs = 86400000, todayISO = now.toISOString().slice(0,10);
       const last30 = [];
       for(const r of rows){
