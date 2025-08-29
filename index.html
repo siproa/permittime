@@ -59,7 +59,6 @@
     <p>
       We compute the difference between <span class="pill">application date</span> and <span class="pill">issue date</span> for permits issued in the last 30 days. Rows with missing or invalid dates are ignored.
     </p>
-
   </main>
 
   <footer>
@@ -67,7 +66,7 @@
   </footer>
 
   <script>
-    // Add cities here. Each entry defines the Socrata portal base, dataset id, and field mapping.
+    // Cities live here. Duplicate Dallas and tweak dataset/fields for new cities.
     const CITIES = {
       dallas: {
         name: "Dallas, TX",
@@ -90,10 +89,19 @@
       sel.addEventListener('change', () => { history.pushState({}, '', '/' + sel.value); load(); });
     }
 
+    // Use the Vercel serverless proxy to avoid CORS/rate limits
     async function soql(portal, dataset, params){
-      const url = portal + dataset + '?' + new URLSearchParams(params).toString();
-      const r = await fetch(url);
-      if(!r.ok) throw new Error('Fetch failed: ' + r.status);
+      const q = new URLSearchParams({
+        portal, dataset,
+        select: params["$select"],
+        where:  params["$where"],
+        limit:  params["$limit"] || 50000
+      });
+      const r = await fetch(`/api/soql?${q.toString()}`);
+      if(!r.ok){
+        const t = await r.text();
+        throw new Error(t || `Fetch failed (${r.status})`);
+      }
       return r.json();
     }
 
@@ -106,29 +114,35 @@
       const issued = cfg.fields.issued;
       const type = cfg.fields.type;
 
+      // KPI 1: Median days to issue (last 30 days)
       const rows = await soql(cfg.portal, cfg.dataset, {
-        "$select": "${applied}, {issued}",
-        "$where": "${issued} >= dateadd('day',-30, now()) AND {applied} IS NOT NULL AND {issued} IS NOT NULL",
+        "$select": `${applied}, ${issued}`,
+        "$where": `${issued} >= dateadd('day',-30, now()) AND ${applied} IS NOT NULL AND ${issued} IS NOT NULL`,
         "$limit": 50000
       });
-      const diffs = rows.map(r => (new Date(r[issued]) - new Date(r[applied]))/86400000).filter(x => isFinite(x) && x >= 0).sort((a,b)=>a-b);
+      const diffs = rows
+        .map(r => (new Date(r[issued]) - new Date(r[applied]))/86400000)
+        .filter(x => isFinite(x) && x >= 0)
+        .sort((a,b)=>a-b);
       document.getElementById('median').textContent = diffs.length ? diffs[Math.floor(diffs.length/2)].toFixed(1) : '—';
 
+      // KPI 2/3: counts
       const todayISO = new Date().toISOString().slice(0,10);
       const last7 = await soql(cfg.portal, cfg.dataset, {
         "$select": "count(1) as c",
-        "$where": "${issued} >= dateadd('day',-7, now())"
+        "$where": `${issued} >= dateadd('day',-7, now())`
       });
       const today = await soql(cfg.portal, cfg.dataset, {
         "$select": "count(1) as c",
-        "$where": "${issued} >= '{todayISO}T00:00:00' AND {issued} < dateadd('day',1,'{todayISO}T00:00:00')"
+        "$where": `${issued} >= '${todayISO}T00:00:00' AND ${issued} < dateadd('day',1,'${todayISO}T00:00:00')`
       });
       document.getElementById('issued7').textContent = last7[0]?.c || '0';
       document.getElementById('today').textContent = today[0]?.c || '0';
 
+      // Table: by permit type median
       const rows2 = await soql(cfg.portal, cfg.dataset, {
-        "$select": "${type}, {applied}, {issued}",
-        "$where": "${issued} >= dateadd('day',-30, now()) AND {applied} IS NOT NULL AND {issued} IS NOT NULL",
+        "$select": `${type}, ${applied}, ${issued}`,
+        "$where": `${issued} >= dateadd('day',-30, now()) AND ${applied} IS NOT NULL AND ${issued} IS NOT NULL`,
         "$limit": 50000
       });
       const groups = {};
@@ -139,7 +153,8 @@
         (groups[t] ||= []).push(d);
       }
       const out = Object.entries(groups).map(([t,arr]) => {
-        arr.sort((a,b)=>a-b); const med = arr[Math.floor(arr.length/2)] || 0;
+        arr.sort((a,b)=>a-b);
+        const med = arr[Math.floor(arr.length/2)] || 0;
         return { t, med: med.toFixed(1), n: arr.length };
       }).sort((a,b)=>b.n-a.n).slice(0, 16);
 
