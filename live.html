@@ -119,8 +119,14 @@
       function median(a){ if(!a || !a.length) return null; var b=a.slice().sort(function(x,y){return x-y}); return b[Math.floor(b.length/2)]; }
       function fmtDate(d){ return (d instanceof Date && !isNaN(d)) ? d.toISOString().slice(0,10) : ''; }
 
-      var C = { name:'Austin, TX', portal:'https://data.austintexas.gov/resource/', dataset:'3syk-w9eu.json',
-                f:{ issued:'completed_date', applied:'applicationdate', type:'permit_type_desc', address:'permit_location' } };
+     var C = {
+  name:'Austin, TX',
+  portal:'https://data.austintexas.gov/resource/',
+  dataset:'3syk-w9eu.json',
+  // correct field names from your raw row
+  f:{ issued:'issue_date', applied:'applieddate', type:'permit_type_desc', address:'permit_location' }
+};
+
 
       // Set immediate UI bits
       document.title = 'PermitTime – ' + C.name;
