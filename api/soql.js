@@ -1,12 +1,12 @@
-// Vercel serverless proxy for Socrata queries (avoids CORS/rate limits)
 export default async function handler(req, res) {
   try {
-    const { portal, dataset, select, where, limit } = req.query;
+    const { portal, dataset, select, where, limit, order } = req.query;
     if (!portal || !dataset) return res.status(400).json({ error: "portal and dataset required" });
 
     const params = new URLSearchParams();
     if (select) params.set("$select", select);
     if (where)  params.set("$where",  where);
+    if (order)  params.set("$order",  order);
     params.set("$limit", limit || "50000");
 
     const url = `${portal}${dataset}?${params.toString()}`;
