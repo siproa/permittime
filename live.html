@@ -42,19 +42,42 @@
 
   <main>
     <div class="kpis">
-      <div class="card"><h2 id="median">—</h2><div class="label">Median days to issue (last <span id="window-label-1">30</span> days)</div><div id="median-note" class="note"></div></div>
-      <div class="card"><h2 id="issued7">—</h2><div class="label">Permits issued (last 7 days)</div></div>
-      <div class="card"><h2 id="today">—</h2><div class="label">Issued today</div></div>
-      <div class="card"><h2 id="last-updated">—</h2><div class="label">Last updated (local) <span id="fallback-badge" class="badge" style="display:none">showing 90 days</span></div><div class="note">Source: <a id="dataset-link" href="#" target="_blank" rel="noopener">official dataset</a></div></div>
+      <div class="card">
+        <h2 id="median">—</h2>
+        <div class="label">Median days to issue (last <span id="window-label-1">30</span> days)</div>
+        <div id="median-note" class="note"></div>
+      </div>
+      <div class="card">
+        <h2 id="issued7">—</h2>
+        <div class="label">Permits issued (last 7 days)</div>
+      </div>
+      <div class="card">
+        <h2 id="today">—</h2>
+        <div class="label">Issued today</div>
+      </div>
+      <div class="card">
+        <h2 id="last-updated">—</h2>
+        <div class="label">
+          Last updated (local)
+          <span id="fallback-badge" class="badge" style="display:none">showing 90 days</span>
+        </div>
+        <div class="note">Source: <a id="dataset-link" href="#" target="_blank" rel="noopener">official dataset</a></div>
+      </div>
     </div>
 
     <h3>By permit type (last <span id="window-label-2">30</span> days)</h3>
-    <table><thead><tr><th>Type</th><th id="type-metric-h">Median days</th><th>Count</th></tr></thead><tbody id="types"></tbody></table>
+    <table>
+      <thead><tr><th>Type</th><th id="type-metric-h">Median days</th><th>Count</th></tr></thead>
+      <tbody id="types"></tbody>
+    </table>
 
     <h3 style="margin-top:28px">Top contractors (last <span id="window-label-3">30</span> days)</h3>
     <div class="toolbar"><span class="muted">Click a contractor to filter recent permits and get a shareable URL.</span></div>
     <div style="max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:12px;">
-      <table><thead><tr><th>Contractor</th><th>Permits</th><th>Total value</th><th>Avg value</th></tr></thead><tbody id="contractors"></tbody></table>
+      <table>
+        <thead><tr><th>Contractor</th><th>Permits</th><th>Total value</th><th>Avg value</th></tr></thead>
+        <tbody id="contractors"></tbody>
+      </table>
     </div>
 
     <h3 style="margin-top:28px">Recent permits (last 7 days)</h3>
@@ -64,148 +87,217 @@
       <span id="rowcount" class="muted"></span>
     </div>
     <div style="max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:12px;">
-      <table><thead><tr><th>Issued</th><th>Type</th><th>Address</th><th>Value</th><th>Contractor</th><th>Description</th></tr></thead><tbody id="recent"></tbody></table>
+      <table>
+        <thead><tr><th>Issued</th><th>Type</th><th>Address</th><th>Value</th><th>Contractor</th><th>Description</th></tr></thead>
+        <tbody id="recent"></tbody>
+      </table>
     </div>
 
     <h3>Methodology</h3>
     <p>We compute the difference between <span class="pill">application date</span> and <span class="pill">issue date</span> for permits issued in the last 30 days. Where application dates aren’t published, we show counts, leaderboards and recent permits but omit the median.</p>
   </main>
 
-  <footer class="muted" style="border-top:1px solid var(--line); padding:16px 20px;">Data is provided as-is from municipal open-data portals. Always check the official city site for definitive status.</footer>
+  <footer class="muted" style="border-top:1px solid var(--line); padding:16px 20px;">
+    Data is provided as-is from municipal open-data portals. Always check the official city site for definitive status.
+  </footer>
 
   <script>
-    // Always visible proof that THIS file executed
-    document.getElementById('build-stamp').textContent = 'build ' + new Date().toLocaleString();
-    // Global error trap → prints stack on the page
-    window.onerror = (m, s, l, c, e) => {
-      const box = document.getElementById('errbox');
-      box.textContent = 'BOOT ERROR: ' + m + '\\n' + (e && e.stack ? e.stack : (s+':'+l));
+    // Visible proof this file executed
+    (function(){ var bs=document.getElementById('build-stamp'); if(bs){ bs.textContent='build '+new Date().toLocaleString(); } })();
+
+    // Global error trap → print stack on the page
+    window.onerror = function(m, s, l, c, e){
+      var box = document.getElementById('errbox');
+      box.textContent = 'BOOT ERROR: ' + m + '\n' + (e && e.stack ? e.stack : (s+':'+l));
       box.style.display = 'block';
     };
 
     (function(){
-      const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;'}[c]));
-      const money = n => { const x = Number(String(n).replace(/[^0-9.-]/g,'')); return isFinite(x) ? x.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}) : ''; };
-      const median = a => { if(!a.length) return null; const b=[...a].sort((x,y)=>x-y); return b[Math.floor(b.length/2)]; };
-      const fmtDate = d => d instanceof Date ? d.toISOString().slice(0,10) : '';
+      // helpers
+      function esc(s){ s = (s==null?'':String(s)); return s.replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;'}[c];}); }
+      function money(n){ var x = Number(String(n).replace(/[^0-9.-]/g,'')); return isFinite(x)? x.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}) : ''; }
+      function median(a){ if(!a || !a.length) return null; var b=a.slice().sort(function(x,y){return x-y}); return b[Math.floor(b.length/2)]; }
+      function fmtDate(d){ return (d instanceof Date && !isNaN(d)) ? d.toISOString().slice(0,10) : ''; }
 
-      const C = { name:'Austin, TX', portal:'https://data.austintexas.gov/resource/', dataset:'3syk-w9eu.json',
-                  f:{ issued:'completed_date', applied:'applicationdate', type:'permit_type_desc', address:'permit_location' } };
+      var C = { name:'Austin, TX', portal:'https://data.austintexas.gov/resource/', dataset:'3syk-w9eu.json',
+                f:{ issued:'completed_date', applied:'applicationdate', type:'permit_type_desc', address:'permit_location' } };
 
-      // Set Last updated immediately so we can’t be staring at dashes if JS runs
-      document.getElementById('last-updated').textContent = new Date().toLocaleString();
+      // Set immediate UI bits
       document.title = 'PermitTime – ' + C.name;
-      document.getElementById('dataset-link').href = C.portal.replace('/resource/','/d/') + C.dataset.replace('.json','');
+      var lu = document.getElementById('last-updated'); if(lu){ lu.textContent = new Date().toLocaleString(); }
+      var dl = document.getElementById('dataset-link'); if(dl){ dl.href = C.portal.replace('/resource/','/d/') + C.dataset.replace('.json',''); }
 
+      // SOQL proxy
       async function soql(p){
-        const q = new URLSearchParams({
+        var q = new URLSearchParams({
           portal: C.portal, dataset: C.dataset,
           select: p.$select||'', where: p.$where||'', order: p.$order||'', group: p.$group||'', limit: p.$limit||20000
         });
-        const r = await fetch('/api/soql?' + q.toString());
-        const t = await r.text(); let j; try { j = JSON.parse(t); } catch { j = null; }
-        if(!r.ok || !Array.isArray(j)) throw new Error((j && j.message) || 'Fetch failed ' + r.status + ': ' + t.slice(0,160));
+        var r = await fetch('/api/soql?' + q.toString());
+        var t = await r.text(); var j=null; try{ j=JSON.parse(t); }catch(_){}
+        if(!r.ok || !Array.isArray(j)) throw new Error((j && j.message) || ('Fetch failed '+r.status+': '+t.slice(0,160)));
         return j;
       }
 
-      (async () => {
-        const f = C.f;
-        const todayISO = new Date().toISOString().slice(0,10);
-        const w30 = `${f.issued} >= dateadd('day',-30, now())`;
-        const w90 = `${f.issued} >= dateadd('day',-90, now())`;
-        const w7  = `${f.issued} >= dateadd('day',-7, now())`;
-        const wT  = `${f.issued} >= '${todayISO}T00:00:00' AND ${f.issued} < dateadd('day',1,'${todayISO}T00:00:00')`;
-        const fields = [f.issued,f.type,f.applied,f.address,'contractor','value','work_description','description'].filter(Boolean).join(', ');
+      (async function(){
+        var f = C.f;
+        var todayISO = new Date().toISOString().slice(0,10);
+        var w30 = f.issued + " >= dateadd('day',-30, now())";
+        var w90 = f.issued + " >= dateadd('day',-90, now())";
+        var w7  = f.issued + " >= dateadd('day',-7, now())";
+        var wT  = f.issued + " >= '" + todayISO + "T00:00:00' AND " + f.issued + " < dateadd('day',1,'" + todayISO + "T00:00:00')";
+        var fields = [f.issued,f.type,f.applied,f.address,'contractor','value','work_description','description'].filter(Boolean).join(', ');
 
         // fetch + fallback
-        let rows30 = await soql({ $select: fields, $where: w30, $order: `${f.issued} DESC`, $limit: 50000 });
-        if(rows30.length === 0){
-          rows30 = await soql({ $select: fields, $where: w90, $order: `${f.issued} DESC`, $limit: 50000 });
-          document.getElementById('fallback-badge').style.display = 'inline-block';
-          ['window-label-1','window-label-2','window-label-3'].forEach(id => document.getElementById(id).textContent = '90');
+        var rows30 = await soql({ $select: fields, $where: w30, $order: f.issued + ' DESC', $limit: 50000 });
+        if(!rows30 || rows30.length===0){
+          rows30 = await soql({ $select: fields, $where: w90, $order: f.issued + ' DESC', $limit: 50000 });
+          var fb = document.getElementById('fallback-badge'); if(fb) fb.style.display='inline-block';
+          var ids = ['window-label-1','window-label-2','window-label-3']; for(var i=0;i<ids.length;i++){ var el=document.getElementById(ids[i]); if(el) el.textContent='90'; }
         }
 
         // KPIs
-        const last7 = await soql({ $select: 'count(1) as c', $where: w7, $limit: 1 });
-        const today = await soql({ $select: 'count(1) as c', $where: wT, $limit: 1 });
-        document.getElementById('issued7').textContent = String(+last7?.[0]?.c || 0);
-        document.getElementById('today').textContent  = String(+today?.[0]?.c || 0);
+        var last7 = await soql({ $select:'count(1) as c', $where:w7, $limit:1 });
+        var today = await soql({ $select:'count(1) as c', $where:wT, $limit:1 });
+        var l7 = (last7 && last7[0] && last7[0].c) ? +last7[0].c : 0;
+        var td = (today && today[0] && today[0].c) ? +today[0].c : 0;
+        var issued7El = document.getElementById('issued7'); if(issued7El) issued7El.textContent = String(l7);
+        var todayEl   = document.getElementById('today');   if(todayEl)   todayEl.textContent   = String(td);
 
         // median
         if(f.applied){
-          const diffs = rows30.map(r=>{
-            const a=r[f.applied], i=r[f.issued];
-            const da=a?new Date(a):NaN, di=i?new Date(i):NaN;
-            return (di-da)/86400000;
-          }).filter(x=>isFinite(x)&&x>=0);
-          const m = diffs.length ? median(diffs) : null;
-          document.getElementById('median').textContent = m!=null ? m.toFixed(1) : '—';
-          document.getElementById('type-metric-h').textContent = 'Median days';
-          document.getElementById('median-note').textContent = '';
-        } else {
-          document.getElementById('median').textContent = 'N/A';
-          document.getElementById('type-metric-h').textContent = '—';
-          document.getElementById('median-note').textContent = 'This dataset lacks application dates; showing activity and leaderboards only.';
-        }
-
-        // by type
-        const byType = {};
-        for(const r of rows30){ const t=r[f.type]||'Other'; (byType[t]??=[]).push(r); }
-        const typeRows = Object.entries(byType).map(([t,arr])=>{
-          let med='—';
-          if(f.applied){
-            const d = arr.map(x=>{
-              const a=x[f.applied], i=x[f.issued];
-              const da=a?new Date(a):NaN, di=i?new Date(i):NaN;
-              return (di-da)/86400000;
-            }).filter(x=>isFinite(x)&&x>=0);
-            const m = d.length ? median(d) : null; med = m!=null ? m.toFixed(1) : '—';
+          var diffs = [];
+          for(var i1=0;i1<rows30.length;i1++){
+            var r1 = rows30[i1];
+            var a = r1[f.applied], i2 = r1[f.issued];
+            var da = a ? new Date(a) : NaN;
+            var di = i2 ? new Date(i2) : NaN;
+            var d = (di - da)/86400000;
+            if(isFinite(d) && d>=0) diffs.push(d);
           }
-          return { t, med, n: arr.length };
-        }).sort((a,b)=>b.n-a.n).slice(0,16);
-        document.getElementById('types').innerHTML = typeRows.length
-          ? typeRows.map(r=>`<tr><td>${esc(r.t)}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join('')
-          : `<tr><td colspan="3">No permit rows in the selected window.</td></tr>`;
-
-        // contractors
-        const byCtr = {};
-        for(const r of rows30){
-          const name=(r.contractor||'').toString().trim() || '(Unspecified)';
-          const val=Number(String(r.value).replace(/[^0-9.-]/g,'')); (byCtr[name]??={n:0,sum:0}).n++; if(isFinite(val)) byCtr[name].sum+=val;
+          var m = diffs.length ? median(diffs) : null;
+          var medEl = document.getElementById('median'); if(medEl) medEl.textContent = (m!=null ? m.toFixed(1) : '—');
+          var th = document.getElementById('type-metric-h'); if(th) th.textContent='Median days';
+          var mn = document.getElementById('median-note'); if(mn) mn.textContent='';
+        } else {
+          var medEl2 = document.getElementById('median'); if(medEl2) medEl2.textContent='N/A';
+          var th2 = document.getElementById('type-metric-h'); if(th2) th2.textContent='—';
+          var mn2 = document.getElementById('median-note'); if(mn2) mn2.textContent='This dataset lacks application dates; showing activity and leaderboards only.';
         }
-        const ctr = Object.entries(byCtr).filter(([k])=>k!=='(Unspecified)').map(([name,s])=>({name,n:s.n,sum:s.sum,avg:s.n?s.sum/s.n:0}))
-                    .sort((a,b)=>b.n-a.n||b.sum-a.sum).slice(0,25);
-        document.getElementById('contractors').innerHTML = ctr.length
-          ? ctr.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.n}</td><td>${money(r.sum)}</td><td>${money(r.avg)}</td></tr>`).join('')
-          : `<tr><td colspan="4">No contractor activity in the selected window.</td></tr>`;
 
-        // recent
-        const recent = await soql({ $select: fields, $where: w7, $order: `${f.issued} DESC`, $limit: 5000 });
-        let shown = recent.map(r=>({
-          issued:r[f.issued]?new Date(r[f.issued]):NaN,
-          type:r[f.type]||'Other',
-          address:r[f.address]||'',
-          value:r.value||'',
-          contractor:r.contractor||'',
-          desc:r.work_description||r.description||''
-        })).sort((a,b)=>b.issued-a.issued);
-        const tbody = document.getElementById('recent'); const rc=document.getElementById('rowcount');
-        const render=()=>{ rc.textContent = shown.length?`${shown.length} rows`:'No permits in the last 7 days.'; tbody.innerHTML = shown.map(r=>`<tr><td>${fmtDate(r.issued)}</td><td>${esc(r.type)}</td><td>${esc(r.address)}</td><td>${money(r.value)}</td><td>${esc(r.contractor)}</td><td>${esc(String(r.desc).slice(0,140))}${String(r.desc).length>140?'…':''}</td></tr>`).join(''); };
+        // by type (fixed grouping)
+        var byType = {};
+        for(var i3=0;i3<rows30.length;i3++){
+          var r2=rows30[i3]; var tName = r2[f.type] || 'Other';
+          if(!byType[tName]) byType[tName]=[];
+          byType[tName].push(r2);
+        }
+        var typeRows = [];
+        var keys = Object.keys(byType);
+        for(var k=0;k<keys.length;k++){
+          var key = keys[k], arr = byType[key];
+          var med = '—';
+          if(f.applied){
+            var d2=[], r; for(var j=0;j<arr.length;j++){ r=arr[j]; var aa=r[f.applied], ii=r[f.issued]; var daa=aa?new Date(aa):NaN; var dii=ii?new Date(ii):NaN; var dv=(dii-daa)/86400000; if(isFinite(dv)&&dv>=0) d2.push(dv); }
+            var mm = d2.length ? median(d2) : null; med = (mm!=null ? mm.toFixed(1) : '—');
+          }
+          typeRows.push({t:key, med:med, n:arr.length});
+        }
+        typeRows.sort(function(a,b){ return b.n - a.n; });
+        typeRows = typeRows.slice(0,16);
+        var typesEl = document.getElementById('types');
+        if(typesEl){
+          typesEl.innerHTML = typeRows.length
+            ? typeRows.map(function(r){ return '<tr><td>'+esc(r.t)+'</td><td>'+r.med+'</td><td>'+r.n+'</td></tr>'; }).join('')
+            : '<tr><td colspan="3">No permit rows in the selected window.</td></tr>';
+        }
+
+        // contractors (avoid nullish assignment)
+        var byCtr = {};
+        for(var c=0;c<rows30.length;c++){
+          var rr = rows30[c];
+          var name = (rr.contractor||'').toString().trim() || '(Unspecified)';
+          var val = Number(String(rr.value).replace(/[^0-9.-]/g,''));
+          if(!byCtr[name]) byCtr[name] = { n:0, sum:0 };
+          byCtr[name].n++;
+          if(isFinite(val)) byCtr[name].sum += val;
+        }
+        var ctrList = [];
+        var ck = Object.keys(byCtr);
+        for(var q=0;q<ck.length;q++){
+          if(ck[q]==='(Unspecified)') continue;
+          var s = byCtr[ck[q]];
+          ctrList.push({name:ck[q], n:s.n, sum:s.sum, avg:s.n? s.sum/s.n : 0});
+        }
+        ctrList.sort(function(a,b){ return (b.n-a.n) || (b.sum-a.sum); });
+        ctrList = ctrList.slice(0,25);
+        var ctrEl = document.getElementById('contractors');
+        if(ctrEl){
+          ctrEl.innerHTML = ctrList.length
+            ? ctrList.map(function(r){ return '<tr><td>'+esc(r.name)+'</td><td>'+r.n+'</td><td>'+money(r.sum)+'</td><td>'+money(r.avg)+'</td></tr>'; }).join('')
+            : '<tr><td colspan="4">No contractor activity in the selected window.</td></tr>';
+        }
+
+        // recent 7d
+        var recent = await soql({ $select: fields, $where: w7, $order: f.issued+' DESC', $limit: 5000 });
+        var shown = recent.map(function(r){
+          return {
+            issued: r[f.issued]? new Date(r[f.issued]) : NaN,
+            type:   r[f.type]  || 'Other',
+            address:r[f.address] || '',
+            value:  r.value || '',
+            contractor: r.contractor || '',
+            desc:   r.work_description || r.description || ''
+          };
+        }).sort(function(a,b){ return b.issued - a.issued; });
+
+        var tbody = document.getElementById('recent');
+        var rc = document.getElementById('rowcount');
+        function render(){
+          if(rc) rc.textContent = shown.length ? (shown.length+' rows') : 'No permits in the last 7 days.';
+          if(!tbody) return;
+          tbody.innerHTML = shown.map(function(r){
+            return '<tr><td>'+fmtDate(r.issued)+'</td><td>'+esc(r.type)+'</td><td>'+esc(r.address)+'</td><td>'+money(r.value)+'</td><td>'+esc(r.contractor)+'</td><td>'+esc(String(r.desc).slice(0,140))+(String(r.desc).length>140?'…':'')+'</td></tr>';
+          }).join('');
+        }
         render();
-        document.getElementById('filter').addEventListener('input', e=>{
-          const q=e.target.value.toLowerCase();
-          shown = recent.filter(x=>[x[f.type],x[f.address],x.contractor,(x.work_description||x.description||'')].some(v=>String(v||'').toLowerCase().includes(q)))
-                        .map(r=>({issued:r[f.issued]?new Date(r[f.issued]):NaN,type:r[f.type]||'Other',address:r[f.address]||'',value:r.value||'',contractor:r.contractor||'',desc:r.work_description||r.description||''}))
-                        .sort((a,b)=>b.issued-a.issued);
-          render();
-        });
 
-        document.getElementById('download').addEventListener('click',()=>{
-          const rows = shown.map(r=>[fmtDate(r.issued), r.type, r.address.replace(/,/g,' '), String(r.value||''), r.contractor.replace(/,/g,' '), String(r.desc||'').replace(/\s+/g,' ').replace(/,/g,' ')]);
-          const csv = [['issued','type','address','value','contractor','description'], ...rows].map(a=>a.join(',')).join('\n');
-          const blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob), a=document.createElement('a'); a.href=url; a.download='austin-recent-permits.csv'; a.click(); URL.revokeObjectURL(url);
-        });
-      })().catch(e=>window.onerror(e.message,'',0,0,e));
+        var filter = document.getElementById('filter');
+        if(filter){
+          filter.addEventListener('input', function(e){
+            var q = (e.target.value || '').toLowerCase();
+            shown = recent.filter(function(x){
+              var hay = [x[f.type], x[f.address], x.contractor, (x.work_description||x.description||'')];
+              for(var i=0;i<hay.length;i++){ if(String(hay[i]||'').toLowerCase().indexOf(q)>=0) return true; }
+              return false;
+            }).map(function(r){
+              return {
+                issued: r[f.issued]? new Date(r[f.issued]) : NaN,
+                type:   r[f.type]  || 'Other',
+                address:r[f.address] || '',
+                value:  r.value || '',
+                contractor: r.contractor || '',
+                desc:   r.work_description || r.description || ''
+              };
+            }).sort(function(a,b){ return b.issued - a.issued; });
+            render();
+          });
+        }
+
+        var dlbtn = document.getElementById('download');
+        if(dlbtn){
+          dlbtn.addEventListener('click', function(){
+            var rows = shown.map(function(r){
+              return [ fmtDate(r.issued), r.type, r.address.replace(/,/g,' '), String(r.value||''), r.contractor.replace(/,/g,' '), String(r.desc||'').replace(/\s+/g,' ').replace(/,/g,' ') ];
+            });
+            var csv = [['issued','type','address','value','contractor','description']].concat(rows).map(function(a){ return a.join(','); }).join('\n');
+            var blob = new Blob([csv],{type:'text/csv'});
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a'); a.href=url; a.download='austin-recent-permits.csv'; a.click(); URL.revokeObjectURL(url);
+          });
+        }
+
+      })().catch(function(e){ window.onerror(e.message,'',0,0,e); });
     })();
   </script>
 </body>
