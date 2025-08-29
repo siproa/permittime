@@ -66,12 +66,13 @@
   </footer>
 
   <script>
-    // Cities live here. Duplicate Dallas and tweak dataset/fields for new cities.
+    // City configs. If fields are missing or wrong, we auto-detect them.
     const CITIES = {
       dallas: {
         name: "Dallas, TX",
         portal: "https://www.dallasopendata.com/resource/",
         dataset: "e7gq-4sah.json",
+        // Guesses; auto-detect will correct these if needed.
         fields: { applied: "application_date", issued: "issue_date", type: "permit_type" }
       }
     };
@@ -89,7 +90,7 @@
       sel.addEventListener('change', () => { history.pushState({}, '', '/' + sel.value); load(); });
     }
 
-    // Use the Vercel serverless proxy to avoid CORS/rate limits
+    // Proxy via Vercel serverless (api/soql.js)
     async function soql(portal, dataset, params){
       const q = new URLSearchParams({
         portal, dataset,
@@ -105,23 +106,59 @@
       return r.json();
     }
 
+    // Try to infer field names from a sample row if our guesses are wrong.
+    async function detectFields(cfg){
+      const sample = await soql(cfg.portal, cfg.dataset, { "$limit": 1 });
+      const keys = Object.keys(sample[0] || {});
+      const find = list => list.find(k => keys.includes(k));
+
+      const applied =
+        cfg.fields?.applied ||
+        find(["application_date","applied_date","filed_date","received_date","submit_date","application_dt"]);
+
+      const issued =
+        cfg.fields?.issued ||
+        find(["issue_date","issued_date","date_issued","issueddate","issue_dt"]);
+
+      const type =
+        cfg.fields?.type ||
+        find(["permit_type","work_type","permitclass","permit_class","permit_description","work_description","permit_description"]);
+
+      return { applied, issued, type };
+    }
+
+    function parseDate(v){
+      if(!v) return NaN;
+      const d = new Date(v);
+      if(!isNaN(d)) return d;
+      const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(v);
+      if(m){
+        let y = parseInt(m[3],10); if(y < 100) y += 2000;
+        return new Date(y, parseInt(m[1],10)-1, parseInt(m[2],10));
+      }
+      return new Date(NaN);
+    }
+
     async function load(){
       const slug = getCitySlug();
       const cfg = CITIES[slug];
       document.title = `PermitTime – ${cfg.name}`;
 
-      const applied = cfg.fields.applied;
-      const issued = cfg.fields.issued;
-      const type = cfg.fields.type;
+      // Resolve real field names
+      const f = await detectFields(cfg);
+      if(!f.applied || !f.issued){
+        document.getElementById('types').innerHTML = `<tr><td colspan="3">Dataset missing required date fields.</td></tr>`;
+        return;
+      }
 
       // KPI 1: Median days to issue (last 30 days)
       const rows = await soql(cfg.portal, cfg.dataset, {
-        "$select": `${applied}, ${issued}`,
-        "$where": `${issued} >= dateadd('day',-30, now()) AND ${applied} IS NOT NULL AND ${issued} IS NOT NULL`,
+        "$select": `${f.applied}, ${f.issued}`,
+        "$where": `${f.issued} >= dateadd('day',-30, now()) AND ${f.applied} IS NOT NULL AND ${f.issued} IS NOT NULL`,
         "$limit": 50000
       });
       const diffs = rows
-        .map(r => (new Date(r[issued]) - new Date(r[applied]))/86400000)
+        .map(r => (parseDate(r[f.issued]) - parseDate(r[f.applied]))/86400000)
         .filter(x => isFinite(x) && x >= 0)
         .sort((a,b)=>a-b);
       document.getElementById('median').textContent = diffs.length ? diffs[Math.floor(diffs.length/2)].toFixed(1) : '—';
@@ -130,25 +167,25 @@
       const todayISO = new Date().toISOString().slice(0,10);
       const last7 = await soql(cfg.portal, cfg.dataset, {
         "$select": "count(1) as c",
-        "$where": `${issued} >= dateadd('day',-7, now())`
+        "$where": `${f.issued} >= dateadd('day',-7, now())`
       });
       const today = await soql(cfg.portal, cfg.dataset, {
         "$select": "count(1) as c",
-        "$where": `${issued} >= '${todayISO}T00:00:00' AND ${issued} < dateadd('day',1,'${todayISO}T00:00:00')`
+        "$where": `${f.issued} >= '${todayISO}T00:00:00' AND ${f.issued} < dateadd('day',1,'${todayISO}T00:00:00')`
       });
       document.getElementById('issued7').textContent = last7[0]?.c || '0';
       document.getElementById('today').textContent = today[0]?.c || '0';
 
       // Table: by permit type median
       const rows2 = await soql(cfg.portal, cfg.dataset, {
-        "$select": `${type}, ${applied}, ${issued}`,
-        "$where": `${issued} >= dateadd('day',-30, now()) AND ${applied} IS NOT NULL AND ${issued} IS NOT NULL`,
+        "$select": `${f.type || "permit_type"}, ${f.applied}, ${f.issued}`,
+        "$where": `${f.issued} >= dateadd('day',-30, now()) AND ${f.applied} IS NOT NULL AND ${f.issued} IS NOT NULL`,
         "$limit": 50000
       });
       const groups = {};
       for(const r of rows2){
-        const t = r[type] || 'Other';
-        const d = (new Date(r[issued]) - new Date(r[applied]))/86400000;
+        const t = (f.type ? r[f.type] : r["permit_type"]) || 'Other';
+        const d = (parseDate(r[f.issued]) - parseDate(r[f.applied]))/86400000;
         if(!(d >= 0) || !isFinite(d)) continue;
         (groups[t] ||= []).push(d);
       }
@@ -158,7 +195,9 @@
         return { t, med: med.toFixed(1), n: arr.length };
       }).sort((a,b)=>b.n-a.n).slice(0, 16);
 
-      document.getElementById('types').innerHTML = out.map(r => `<tr><td>${r.t}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join('');
+      document.getElementById('types').innerHTML = out.length
+        ? out.map(r => `<tr><td>${r.t}</td><td>${r.med}</td><td>${r.n}</td></tr>`).join('')
+        : `<tr><td colspan="3">No data in the last 30 days.</td></tr>`;
     }
 
     buildCityPicker();
