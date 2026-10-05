@@ -78,3 +78,5 @@ try:
     dump("atlanta_diag.json",{"status":r.status_code,"url":r.url,"ctype":r.headers.get("content-type"),"bytes":len(r.content),"title":soup.title.string if soup.title else None,"forms":forms[:3],"scripts":[x.get("src") for x in soup.find_all("script") if x.get("src")]})
 except Exception as e:
     dump("atlanta_error.json",{"error":repr(e),"trace":traceback.format_exc()})
+
+# trigger workflow
