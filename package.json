@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "dependencies": {
+    "cheerio": "1.0.0",
+    "xlsx": "0.18.5"
+  }
+}
